@@ -88,7 +88,7 @@ class UBPMCDataset_Bar(Dataset):
                
                 f.close()
 
-        self.images = list(self.all_annotations.keys())
+        self.images = list(self.all_annotations.keys())[:10]
 
 
 
@@ -188,10 +188,10 @@ class UBPMCDataset_Bar(Dataset):
                 hmap_tl[0, iytl, ixtl] = 1
                 hmap_br[0, iybr, ixbr] = 1
 
-        regs_tl[0, :] = [fxtl - ixtl, fytl - iytl]
-        regs_br[0, :] = [fxbr - ixbr, fybr - iybr]
-        inds_tl[0] = iytl * self.feature_map_size['w'] + ixtl
-        inds_br[0] = iybr * self.feature_map_size['w'] + ixbr
+            regs_tl[0, :] = [fxtl - ixtl, fytl - iytl]
+            regs_br[0, :] = [fxbr - ixbr, fybr - iybr]
+            inds_tl[0] = iytl * self.feature_map_size['w'] + ixtl
+            inds_br[0] = iybr * self.feature_map_size['w'] + ixbr
 
         return {'image': image,
             'hmap_tl': hmap_tl, 'hmap_br': hmap_br,

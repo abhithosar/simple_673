@@ -26,7 +26,7 @@ from utils.keypoint import _decode, _rescale_dets, _tranpose_and_gather_feature
 
 from lib.nms.nms import soft_nms, soft_nms_merge
 
-from chart_models.bar.bar_chart_kp_detection import get_bar_chart_model,bar_chart_loss
+from chart_models.bar.bar_chart_kp_detection import get_bar_chart_model
 
 # Training settings
 parser = argparse.ArgumentParser(description='cornernet')
@@ -128,8 +128,12 @@ def main():
                                            )#collate_fn=val_dataset.collate_fn
 
   print('Creating model...')
-  if 'bar' in cfg.arch:
-    model = get_bar_chart_model('small_hourglass')
+  if 'hourglass' in cfg.arch:
+    model = get_hourglass[cfg.arch]
+  elif 'resdcn' in cfg.arch:
+    model = get_pose_net(num_layers=int(cfg.arch.split('_')[-1]), num_classes=train_dataset.num_classes)
+  elif 'bar' in cfg.arch:
+    model = get_hourglass['small_hourglass']#get_bar_chart_model('small_hourglass')
 
 
   if cfg.dist:
@@ -154,13 +158,25 @@ def main():
         batch[k] = batch[k].to(device=cfg.device, non_blocking=True)
 
       outputs = model(batch['image'])
-      
-      loss = bar_chart_loss(outputs,batch)
+      hmap_tl, hmap_br, embd_tl, embd_br, regs_tl, regs_br = zip(*outputs)
+
+      embd_tl = [_tranpose_and_gather_feature(e, batch['inds_tl']) for e in embd_tl]
+      embd_br = [_tranpose_and_gather_feature(e, batch['inds_br']) for e in embd_br]
+      regs_tl = [_tranpose_and_gather_feature(r, batch['inds_tl']) for r in regs_tl]
+      regs_br = [_tranpose_and_gather_feature(r, batch['inds_br']) for r in regs_br]
+
+      focal_loss = _neg_loss(hmap_tl, batch['hmap_tl']) + \
+                   _neg_loss(hmap_br, batch['hmap_br'])
+      reg_loss = _reg_loss(regs_tl, batch['regs_tl'], batch['ind_masks']) + \
+                 _reg_loss(regs_br, batch['regs_br'], batch['ind_masks'])
+      pull_loss, push_loss = _ae_loss(embd_tl, embd_br, batch['ind_masks'])
+
+      loss = focal_loss + 0.1 * pull_loss + 0.1 * push_loss + reg_loss
 
       optimizer.zero_grad()
-      loss[0].backward()
+      loss.backward()
       optimizer.step()
-      (focal_loss,reg_loss,pull_loss,push_loss) = loss[1]
+
       if batch_idx % cfg.log_interval == 0:
         duration = time.perf_counter() - tic
         tic = time.perf_counter()
@@ -231,8 +247,8 @@ def main():
     train(epoch)
     
     ################## commented for now, output will be generated later in test model script
-    # if cfg.val_interval > 0 and epoch % cfg.val_interval == 0:
-    #   val_map(epoch)
+    if cfg.val_interval > 0 and epoch % cfg.val_interval == 0:
+      val_map(epoch)
     print(saver.save(model.module.state_dict(), 'checkpoint'))
     lr_scheduler.step(epoch)  # move to here after pytorch1.1.0
 
