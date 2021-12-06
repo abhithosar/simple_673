@@ -87,7 +87,7 @@ def _get_border(border, size):
   return border // i
 
 
-def random_crop(image, detections, random_scales, new_size, padding):
+def random_crop(image, detections, random_scales, new_size, padding,isline=False):
   new_height, new_width = new_size['h'], new_size['w']
   image_height, image_width = image.shape[0:2]
 
@@ -118,11 +118,20 @@ def random_crop(image, detections, random_scales, new_size, padding):
   cropped_image[y_slice, x_slice, :] = image[bottom:top, left:right, :]
 
   # crop detections
-  cropped_detections = detections.copy()
-  cropped_detections[:, 0::2] -= left
-  cropped_detections[:, 1::2] -= bottom
-  cropped_detections[:, 0::2] += cropped_center_x - left_w
-  cropped_detections[:, 1::2] += cropped_center_y - top_h
+  if not isline:
+    cropped_detections = detections.copy()
+    cropped_detections[:, 0::2] -= left
+    cropped_detections[:, 1::2] -= bottom
+    cropped_detections[:, 0::2] += cropped_center_x - left_w
+    cropped_detections[:, 1::2] += cropped_center_y - top_h
+  else:
+
+    cropped_detections = detections.copy()
+    cropped_detections[:, 0:cropped_detections.shape[1]:2] -= left
+    cropped_detections[:, 1:cropped_detections.shape[1]:2] -= bottom
+    cropped_detections[:, 0:cropped_detections.shape[1]:2] += cropped_center_x - left_w
+    cropped_detections[:, 1:cropped_detections.shape[1]:2] += cropped_center_y - top_h
+
 
   return cropped_image, cropped_detections
 

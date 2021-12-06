@@ -153,7 +153,7 @@ def main():
       for k in batch:
         batch[k] = batch[k].to(device=cfg.device, non_blocking=True)
 
-      outputs = model(batch['image'])
+      outputs = model(batch)#batch['image'])
       
       loss = bar_chart_loss(outputs,batch)
 
@@ -231,8 +231,8 @@ def main():
     train(epoch)
     
     ################## commented for now, output will be generated later in test model script
-    # if cfg.val_interval > 0 and epoch % cfg.val_interval == 0:
-    #   val_map(epoch)
+    if cfg.val_interval > 0 and epoch % cfg.val_interval == 0:
+      val_map(epoch)
     print(saver.save(model.module.state_dict(), 'checkpoint'))
     lr_scheduler.step(epoch)  # move to here after pytorch1.1.0
 

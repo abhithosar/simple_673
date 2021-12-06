@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from lib.cpool import TopPool, BottomPool, LeftPool, RightPool
-
+from utils.keypoint import _decode, _rescale_dets, _tranpose_and_gather_feature
 
 class pool(nn.Module):
   def __init__(self, dim, pool1, pool2):
@@ -32,6 +32,47 @@ class pool(nn.Module):
     out = self.conv2(F.relu(p_bn1 + bn1, inplace=True))
     return out
 
+class pool_cross(nn.Module):
+    def __init__(self, dim, pool1, pool2, pool3, pool4):
+        super(pool_cross, self).__init__()
+        self.p1_conv1 = convolution(3, dim, 128)
+        self.p2_conv1 = convolution(3, dim, 128)
+
+        self.p_conv1 = nn.Conv2d(128, dim, (3, 3), padding=(1, 1), bias=False)
+        self.p_bn1   = nn.BatchNorm2d(dim)
+
+        self.conv1 = nn.Conv2d(dim, dim, (1, 1), bias=False)
+        self.bn1   = nn.BatchNorm2d(dim)
+        self.relu1 = nn.ReLU(inplace=True)
+
+        self.conv2 = convolution(3, dim, dim)
+
+        self.pool1 = pool1()
+        self.pool2 = pool2()
+        self.pool3 = pool3()
+        self.pool4 = pool4()
+
+    def forward(self, x):
+        # pool 1
+        p1_conv1 = self.p1_conv1(x)
+        pool1    = self.pool1(p1_conv1)
+        pool1    = self.pool3(pool1)
+
+        # pool 2
+        p2_conv1 = self.p2_conv1(x)
+        pool2    = self.pool2(p2_conv1)
+        pool2    = self.pool4(pool2)
+
+        # pool 1 + pool 2
+        p_conv1 = self.p_conv1(pool1 + pool2)
+        p_bn1   = self.p_bn1(p_conv1)
+
+        conv1 = self.conv1(x)
+        bn1   = self.bn1(conv1)
+        relu1 = self.relu1(p_bn1 + bn1)
+
+        conv2 = self.conv2(relu1)
+        return conv2
 
 class convolution(nn.Module):
   def __init__(self, k, inp_dim, out_dim, stride=1, with_bn=True):
@@ -154,39 +195,65 @@ class exkp(nn.Module):
     self.kps = nn.ModuleList([kp_module(n, dims, modules) for _ in range(nstack)])
 
     self.cnvs = nn.ModuleList([convolution(3, curr_dim, cnv_dim) for _ in range(nstack)])
+  
+    if self.chart_type == 'bar' or self.chart_type == 'pie':
+      self.cnvs_tl = nn.ModuleList([pool(cnv_dim, TopPool, LeftPool) for _ in range(nstack)])
+      self.cnvs_br = nn.ModuleList([pool(cnv_dim, BottomPool, RightPool) for _ in range(nstack)])
+
+      # heatmap layers
+      self.hmap_tl = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, num_classes) for _ in range(nstack)])
+      self.hmap_br = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, num_classes) for _ in range(nstack)])
+      
+      for hmap_tl, hmap_br in zip(self.hmap_tl, self.hmap_br):
+        hmap_tl[-1].bias.data.fill_(-2.19)
+        hmap_br[-1].bias.data.fill_(-2.19) 
+
+      # regression layers
+      self.regs_tl = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 2) for _ in range(nstack)])
+      self.regs_br = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 2) for _ in range(nstack)])
+
+    elif self.chart_type == 'line':
+      self.key_cnvs = nn.ModuleList([pool_cross(cnv_dim, TopPool, LeftPool, BottomPool, RightPool) for _ in range(nstack)])
+      self.hybrid_cnvs = nn.ModuleList([pool_cross(cnv_dim, TopPool, LeftPool, BottomPool, RightPool) for _ in range(nstack)])
+    
+      self.key_heats = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, num_classes) for _ in range(nstack)])
+      self.hybrid_heats = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, num_classes) for _ in range(nstack)])
+
+      for key_heat, hybrid_heat in zip(self.key_heats, self.hybrid_heats):
+        key_heat[-1].bias.data.fill_(-2.19)
+        hybrid_heat[-1].bias.data.fill_(-2.19)
+
 
     self.inters = nn.ModuleList([residual(3, curr_dim, curr_dim) for _ in range(nstack - 1)])
 
     self.inters_ = nn.ModuleList([nn.Sequential(nn.Conv2d(curr_dim, curr_dim, (1, 1), bias=False),
                                                 nn.BatchNorm2d(curr_dim))
                                   for _ in range(nstack - 1)])
+
     self.cnvs_ = nn.ModuleList([nn.Sequential(nn.Conv2d(cnv_dim, curr_dim, (1, 1), bias=False),
                                               nn.BatchNorm2d(curr_dim))
                                 for _ in range(nstack - 1)])
 
-    self.cnvs_tl = nn.ModuleList([pool(cnv_dim, TopPool, LeftPool) for _ in range(nstack)])
-    self.cnvs_br = nn.ModuleList([pool(cnv_dim, BottomPool, RightPool) for _ in range(nstack)])
-
-    # heatmap layers
-    self.hmap_tl = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, num_classes) for _ in range(nstack)])
-    self.hmap_br = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, num_classes) for _ in range(nstack)])
+     
 
     # embedding layers
     self.embd_tl = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 1) for _ in range(nstack)])
     self.embd_br = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 1) for _ in range(nstack)])
 
-    for hmap_tl, hmap_br in zip(self.hmap_tl, self.hmap_br):
-      hmap_tl[-1].bias.data.fill_(-2.19)
-      hmap_br[-1].bias.data.fill_(-2.19)
+    
 
-    # regression layers
-    self.regs_tl = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 2) for _ in range(nstack)])
-    self.regs_br = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 2) for _ in range(nstack)])
+    
 
     self.relu = nn.ReLU(inplace=True)
 
   def forward(self, inputs):
-    inter = self.pre(inputs)
+    if self.training:
+      return self.train_loop(inputs)
+    else:
+      return self.test_looop()
+
+  def train_loop(self, inputs):
+    inter = self.pre(inputs['image'])
 
     outs = []
     for ind in range(self.nstack):
@@ -201,14 +268,19 @@ class exkp(nn.Module):
         embd_tl, embd_br = self.embd_tl[ind](cnv_tl), self.embd_br[ind](cnv_br)
         regs_tl, regs_br = self.regs_tl[ind](cnv_tl), self.regs_br[ind](cnv_br)
 
-        outs.append([hmap_tl, hmap_br, embd_tl, embd_br, regs_tl, regs_br])
+
+      embd_tl = [_tranpose_and_gather_feature(e, inputs['inds_tl']) for e in embd_tl]
+      embd_br = [_tranpose_and_gather_feature(e, inputs['inds_br']) for e in embd_br]
+      regs_tl = [_tranpose_and_gather_feature(r, inputs['inds_tl']) for r in regs_tl]
+      regs_br = [_tranpose_and_gather_feature(r, inputs['inds_br']) for r in regs_br]
+
+      outs.append([hmap_tl, hmap_br, embd_tl, embd_br, regs_tl, regs_br])
 
       if ind < self.nstack - 1:
         inter = self.inters_[ind](inter) + self.cnvs_[ind](cnv)
         inter = self.relu(inter)
         inter = self.inters[ind](inter)
     return outs
-
 
 # tiny hourglass is for f**king debug
 get_hourglass = \
