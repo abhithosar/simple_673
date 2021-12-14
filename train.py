@@ -4,6 +4,8 @@ import time
 import argparse
 from datetime import datetime
 
+
+from PIL import Image
 # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # see issue #152
 # os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
@@ -15,7 +17,7 @@ import torch.distributed as dist
 
 from datasets.coco import COCO, COCO_eval
 from datasets.pascal import PascalVOC, PascalVOC_eval
-from datasets.ubpmc.ubpmc import UBPMCDataset_Bar
+from datasets.ubpmc.ubpmc import UBPMCDataset_Bar, UBPMCDataset_Line
 
 # from nets.resdcn import get_pose_net
 from nets.hourglass import get_hourglass
@@ -27,6 +29,8 @@ from utils.keypoint import _decode, _rescale_dets, _tranpose_and_gather_feature
 from lib.nms.nms import soft_nms, soft_nms_merge
 
 from chart_models.bar.bar_chart_kp_detection import get_bar_chart_model,bar_chart_loss
+
+from chart_models.bar.Bar_Rule import GroupBarRaw
 
 # Training settings
 parser = argparse.ArgumentParser(description='cornernet')
@@ -92,6 +96,7 @@ def main():
   print('Setting up data...')
   Dataset_Dict = {
     'ubpmc_bar':UBPMCDataset_Bar,
+    'ubpmc_line':UBPMCDataset_Line,
     'coco':COCO,
     'pascal':PascalVOC
   }
@@ -114,6 +119,7 @@ def main():
                                              sampler=train_sampler if cfg.dist else None)
   Dataset_Eval_Dict = {
     'ubpmc_bar':UBPMCDataset_Bar,#UBPMCDataset_Bar_Eval,
+     'ubpmc_line':UBPMCDataset_Line,
     'coco':COCO_eval,
     'pascal':PascalVOC_eval
   }
@@ -129,19 +135,19 @@ def main():
 
   print('Creating model...')
   if 'bar' in cfg.arch:
-    model = get_bar_chart_model('small_hourglass')
+    model = get_bar_chart_model('tiny_hourglass')
 
 
-  if cfg.dist:
-    # model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-    model = model.to(cfg.device)
-    model = nn.parallel.DistributedDataParallel(model,
-                                                device_ids=[cfg.local_rank, ],
-                                                output_device=cfg.local_rank)
-  else:
-    # todo don't use this, or wrapped it with utils.losses.Loss() !
-    model = nn.DataParallel(model).to(cfg.device)
-
+  # if cfg.dist:
+  #   # model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+  #   model = model.to(cfg.device)
+  #   model = nn.parallel.DistributedDataParallel(model,
+  #                                               device_ids=[cfg.local_rank, ],
+  #                                               output_device=cfg.local_rank)
+  # else:
+  #   # todo don't use this, or wrapped it with utils.losses.Loss() !
+  #   model = nn.DataParallel(model).to(cfg.device)
+  model = model.to(cfg.device)
   optimizer = torch.optim.Adam(model.parameters(), cfg.lr)
   lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, cfg.lr_step, gamma=0.1)
 
@@ -154,8 +160,8 @@ def main():
         batch[k] = batch[k].to(device=cfg.device, non_blocking=True)
 
       outputs = model(batch)#batch['image'])
-      
-      loss = bar_chart_loss(outputs,batch)
+      if 'bar' in cfg.arch:
+        loss = bar_chart_loss(outputs,batch)
 
       optimizer.zero_grad()
       loss[0].backward()
@@ -183,47 +189,17 @@ def main():
 
     results = {}
     with torch.no_grad():
-      for inputs in val_loader:
-        img_id, inputs = inputs[0]
+      #TODO LOAD batch['image'] from PIL image
+      for batch_idx, batch in enumerate(train_loader):
+        for k in batch:
+          batch[k] = batch[k].to(device=cfg.device, non_blocking=True)
 
-        detections = []
-        for scale in inputs:
-          inputs[scale]['image'] = inputs[scale]['image'].to(cfg.device)
-          output = model(inputs[scale]['image'])[-1]
-          det = _decode(*output, ae_threshold=0.5, K=100, kernel=3)
-          det = det.reshape(det.shape[0], -1, 8).detach().cpu().numpy()
-          if det.shape[0] == 2:
-            det[1, :, [0, 2]] = inputs[scale]['fmap_size'][0, 1] - det[1, :, [2, 0]]
-          det = det.reshape(1, -1, 8)
+          outputs = model(batch)
+          tl_detections = outputs[0]
+          br_detection = outputs[1]
 
-          _rescale_dets(det, inputs[scale]['ratio'], inputs[scale]['border'], inputs[scale]['size'])
-          det[:, :, 0:4] /= scale
-          detections.append(det)
-
-        detections = np.concatenate(detections, axis=1)[0]
-        # reject detections with negative scores
-        detections = detections[detections[:, 4] > -1]
-        classes = detections[..., -1]
-
-        results[img_id] = {}
-        for j in range(val_dataset.num_classes):
-          keep_inds = (classes == j)
-          results[img_id][j + 1] = detections[keep_inds][:, 0:7].astype(np.float32)
-          soft_nms_merge(results[img_id][j + 1], Nt=0.5, method=2, weight_exp=10)
-          # soft_nms(results[img_id][j + 1], Nt=0.5, method=2)
-          results[img_id][j + 1] = results[img_id][j + 1][:, 0:5]
-
-        scores = np.hstack([results[img_id][j][:, -1] for j in range(1, val_dataset.num_classes + 1)])
-        if len(scores) > val_dataset.max_objs:
-          kth = len(scores) - val_dataset.max_objs
-          thresh = np.partition(scores, kth)[kth]
-          for j in range(1, val_dataset.num_classes + 1):
-            keep_inds = (results[img_id][j][:, -1] >= thresh)
-            results[img_id][j] = results[img_id][j][keep_inds]
-
-    eval_results = val_dataset.run_eval(results, save_dir=cfg.ckpt_dir)
-    print(eval_results)
-    summary_writer.add_scalar('val_mAP/mAP', eval_results[0], epoch)
+          bar_data = GroupBarRaw(batch['image'],tl_detections,br_detection)
+          #TODO WRITE BBOXES TO FILE FOR EVALUATION
 
   print('Starting training...')
   for epoch in range(1, cfg.num_epochs + 1):

@@ -117,7 +117,24 @@ class residual(nn.Module):
     skip = self.skip(x)
     return self.relu(bn2 + skip)
 
+def _nms(heat, kernel=1):
+    pad = (kernel - 1) // 2
 
+    hmax = nn.functional.max_pool2d(heat, (kernel, kernel), stride=1, padding=pad)
+    keep = (hmax == heat).float()
+    return heat * keep
+
+def _topk(scores, K=20):
+    batch, cat, height, width = scores.size()
+
+    topk_scores, topk_inds = torch.topk(scores.view(batch, -1), K)
+
+    topk_clses = (topk_inds / (height * width)).int()
+
+    topk_inds = topk_inds % (height * width)
+    topk_ys = (topk_inds / width).int().float()
+    topk_xs = (topk_inds % width).int().float()
+    return topk_scores, topk_inds, topk_clses, topk_ys, topk_xs
 # inp_dim -> out_dim -> ... -> out_dim
 def make_layer(kernel_size, inp_dim, out_dim, modules, layer, stride=1):
   layers = [layer(kernel_size, inp_dim, out_dim, stride=stride)]
@@ -182,9 +199,9 @@ class kp_module(nn.Module):
 
 
 class exkp(nn.Module):
-  def __init__(self, n, nstack, dims, modules, num_classes=1, cnv_dim=256):
+  def __init__(self, n, nstack, dims, modules, num_classes=1, cnv_dim=256,c_type='bar'):
     super(exkp, self).__init__()
-
+    self.chart_type = c_type
     self.nstack = nstack
 
     curr_dim = dims[0]
@@ -217,12 +234,14 @@ class exkp(nn.Module):
       self.hybrid_cnvs = nn.ModuleList([pool_cross(cnv_dim, TopPool, LeftPool, BottomPool, RightPool) for _ in range(nstack)])
     
       self.key_heats = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, num_classes) for _ in range(nstack)])
-      self.hybrid_heats = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, num_classes) for _ in range(nstack)])
+      self.hybrid_heats = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim  , num_classes) for _ in range(nstack)])
 
       for key_heat, hybrid_heat in zip(self.key_heats, self.hybrid_heats):
         key_heat[-1].bias.data.fill_(-2.19)
         hybrid_heat[-1].bias.data.fill_(-2.19)
-
+      
+      self.key_regrs = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, num_classes) for _ in range(nstack)])
+      self.key_tags = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 1) for _ in range(nstack)])
 
     self.inters = nn.ModuleList([residual(3, curr_dim, curr_dim) for _ in range(nstack - 1)])
 
@@ -234,11 +253,11 @@ class exkp(nn.Module):
                                               nn.BatchNorm2d(curr_dim))
                                 for _ in range(nstack - 1)])
 
-     
+    
 
     # embedding layers
-    self.embd_tl = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 1) for _ in range(nstack)])
-    self.embd_br = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 1) for _ in range(nstack)])
+    #self.embd_tl = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 1) for _ in range(nstack)])
+    #self.embd_br = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 1) for _ in range(nstack)])
 
     
 
@@ -250,9 +269,11 @@ class exkp(nn.Module):
     if self.training:
       return self.train_loop(inputs)
     else:
+      if self.chart_type == 'bar':
+        return self.bar_chart_val(inputs)
       return self.test_looop()
 
-  def train_loop(self, inputs):
+  def train_loop(self, inputs, for_val=False):
     inter = self.pre(inputs['image'])
 
     outs = []
@@ -261,35 +282,132 @@ class exkp(nn.Module):
       cnv = self.cnvs[ind](kp)
 
       if self.training or ind == self.nstack - 1:
-        cnv_tl = self.cnvs_tl[ind](cnv)
-        cnv_br = self.cnvs_br[ind](cnv)
+        
+        if self.chart_type == 'bar': 
+          cnv_tl = self.cnvs_tl[ind](cnv)
+          cnv_br = self.cnvs_br[ind](cnv)
 
-        hmap_tl, hmap_br = self.hmap_tl[ind](cnv_tl), self.hmap_br[ind](cnv_br)
-        embd_tl, embd_br = self.embd_tl[ind](cnv_tl), self.embd_br[ind](cnv_br)
-        regs_tl, regs_br = self.regs_tl[ind](cnv_tl), self.regs_br[ind](cnv_br)
+          hmap_tl, hmap_br = self.hmap_tl[ind](cnv_tl), self.hmap_br[ind](cnv_br)
+          regs_tl, regs_br = self.regs_tl[ind](cnv_tl), self.regs_br[ind](cnv_br)
+
+          #embd_tl, embd_br = self.embd_tl[ind](cnv_tl), self.embd_br[ind](cnv_br)
+          
+
+      
+          #embd_tl = [_tranpose_and_gather_feature(e, inputs['inds_tl']) for e in embd_tl]
+          #embd_br = [_tranpose_and_gather_feature(e, inputs['inds_br']) for e in embd_br]
+
+          # regs_tl = [_tranpose_and_gather_feature(r, inputs['inds_tl']) for r in regs_tl]
+          # regs_br = [_tranpose_and_gather_feature(r, inputs['inds_br']) for r in regs_br]
+          if not for_val:
+            regs_tl = _tranpose_and_gather_feature(regs_tl,inputs['inds_tl'])
+            regs_br = _tranpose_and_gather_feature(regs_br,inputs['inds_br'])
+          #outs.append([hmap_tl, hmap_br, embd_tl, embd_br, regs_tl, regs_br])
+          outs.append([hmap_tl, hmap_br, regs_tl, regs_br])
 
 
-      embd_tl = [_tranpose_and_gather_feature(e, inputs['inds_tl']) for e in embd_tl]
-      embd_br = [_tranpose_and_gather_feature(e, inputs['inds_br']) for e in embd_br]
-      regs_tl = [_tranpose_and_gather_feature(r, inputs['inds_tl']) for r in regs_tl]
-      regs_br = [_tranpose_and_gather_feature(r, inputs['inds_br']) for r in regs_br]
+    
 
-      outs.append([hmap_tl, hmap_br, embd_tl, embd_br, regs_tl, regs_br])
+        if self.chart_type == 'pie':
+          center_cnv = self.cnvs_tl[ind](cnv)
+          key_cnv = self.cnvs_br[ind](cnv)
+
+          center_heat, key_heat = self.hmap_tl[ind](center_cnv), self.hmap_br[int](key_cnv)
+          center_regr, key_regr = self.regs_tl[ind](center_cnv), self.regs_br[ind](key_cnv)
+          center_regr = [_tranpose_and_gather_feature(e, inputs['center_inds']) for e in center_regr]
+          key_regr_tl = [_tranpose_and_gather_feature(e, inputs['key_inds_tl']) for e in key_regr]
+          key_regr_br = [_tranpose_and_gather_feature(e, inputs['key_inds_br']) for e in key_regr]
+
+          outs.append([center_heat, key_heat, center_regr, key_regr_tl, key_regr_br])
+
+        
+        if self.chart_type == 'line':
+          key_point_cnv = self.key_cnvs[ind](cnv)
+          hybrid_cnv = self.hybrid_cnvs[ind](cnv)
+
+          key_heat,hybrid_heat = self.key_heats[ind](key_point_cnv),self.hybrid_heats[ind](hybrid_cnv)
+          key_tag_ori = self.key_tags[ind](cnv)
+          key_regrs_ori = self.key_regrs[ind](key_point_cnv)
+
+          key_tag  = [_tranpose_and_gather_feature(e, inputs['key_inds']) for e in key_tag_ori]
+          key_regr = [_tranpose_and_gather_feature(e, inputs['key_inds']) for e in key_regrs_ori]
+
+          key_tag_grouped = []
+          for g_id in range(16):
+            key_tag_grouped.append(torch.unsqueeze(_tranpose_and_gather_feature(key_tag_ori, inputs['key_inds_grouped'][g_id,:]), 1))
+          key_tag_grouped = torch.cat(key_tag_grouped, 1)
+
+          outs.append([key_heat, hybrid_heat, key_tag, key_tag_grouped, key_regr])
 
       if ind < self.nstack - 1:
         inter = self.inters_[ind](inter) + self.cnvs_[ind](cnv)
         inter = self.relu(inter)
         inter = self.inters[ind](inter)
+
+
     return outs
 
+  def test_loop(self,):
+    return None
+
+  def bar_chart_val(self,inputs):
+    output = self.train_loop(inputs,for_val=True)
+    K=100
+    kernel = 1
+    ae_threshold = 1
+    num_dets =1000
+
+    tl_heat, br_heat, tl_regr, br_regr = output[0],output[1],output[2],output[3]
+    batch, cat, height, width = tl_heat.size()
+
+    tl_heat = torch.sigmoid(tl_heat)
+    br_heat = torch.sigmoid(br_heat)
+
+    # perform nms on heatmaps
+    tl_heat = _nms(tl_heat, kernel=kernel)
+    br_heat = _nms(br_heat, kernel=kernel)
+
+    tl_scores, tl_inds, tl_clses, tl_ys, tl_xs = _topk(tl_heat, K=K)
+    br_scores, br_inds, br_clses, br_ys, br_xs = _topk(br_heat, K=K)
+    # print(tl_scores)
+    tl_regr_ = _tranpose_and_gather_feature(tl_regr, tl_inds)
+    br_regr_ = _tranpose_and_gather_feature(br_regr, br_inds)
+
+
+    tl_scores_ = tl_scores.view(1, batch, K)
+    tl_clses_ = tl_clses.view(1, batch, K)
+    tl_xs_ = tl_xs.view(1, batch, K)
+    # print('_________________')
+    # print(tl_xs_[0, 0])
+    tl_ys_ = tl_ys.view(1, batch, K)
+    tl_regr_ = tl_regr_.view(1, batch, K, 2)
+    tl_xs_ += tl_regr_[:, :, :, 0]
+    # print(tl_xs_[0, 0])
+    tl_ys_ += tl_regr_[:, :, :, 1]
+    br_scores_ = br_scores.view(1, batch, K)
+    br_clses_ = br_clses.view(1, batch, K)
+    br_xs_ = br_xs.view(1, batch, K)
+    br_ys_ = br_ys.view(1, batch, K)
+    br_regr_ = br_regr_.view(1, batch, K, 2)
+    br_xs_ += br_regr_[:, :, :, 0]
+    br_ys_ += br_regr_[:, :, :, 1]
+    detections_tl = torch.cat([tl_scores_, tl_clses_.float(), tl_xs_, tl_ys_], dim=0)
+    detections_br = torch.cat([br_scores_, br_clses_.float(), br_xs_, br_ys_], dim=0)
+
+    return detections_tl, detections_br
+
+
+
 # tiny hourglass is for f**king debug
-get_hourglass = \
-  {'large_hourglass':
-     exkp(n=5, nstack=2, dims=[256, 256, 384, 384, 384, 512], modules=[2, 2, 2, 2, 2, 4]),
-   'small_hourglass':
-     exkp(n=5, nstack=1, dims=[256, 256, 384, 384, 384, 512], modules=[2, 2, 2, 2, 2, 4]),
-   'tiny_hourglass':
-     exkp(n=5, nstack=1, dims=[256, 128, 256, 256, 256, 384], modules=[2, 2, 2, 2, 2, 4])}
+def get_hourglass(hourglass_type,chart_type):
+  get_hourglass_dict = \
+    {
+    'large_hourglass' : exkp(n=5, nstack=2, dims=[256, 256, 384, 384, 384, 512], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type),
+    'small_hourglass' : exkp(n=5, nstack=1, dims=[256, 256, 384, 384, 384, 512], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type),
+    'tiny_hourglass'  : exkp(n=5, nstack=1, dims=[256, 128, 256, 256, 256, 384], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type)
+    }
+  return get_hourglass_dict[hourglass_type]
+    
 
 if __name__ == '__main__':
   import time

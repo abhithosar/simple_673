@@ -5,6 +5,37 @@ import torch.nn.functional as F
 from utils.keypoint import _tranpose_and_gather_feature
 
 
+
+def _ae_line_loss(tag_full, mask_full):
+    # mask_full [batch, Max_group, Max_len]
+    # tag_full  [batch, Max_group, Max_len]
+    pull = 0
+    push = 0
+    tag_full = torch.squeeze(tag_full)
+    tag_full[1-mask_full] = 0
+    num = mask_full.sum(dim=2, keepdim=True).float()
+    tag_avg = tag_full.sum(dim=2, keepdim=True) / num
+    pull = torch.pow(tag_full - tag_avg, 2) / (num + 1e-4)
+    pull = pull[mask_full].sum()
+
+    tag_avg = torch.squeeze(tag_avg)
+    mask = mask_full.sum(dim=2)
+    mask = mask.gt(1)
+    num = mask.sum(dim=1, keepdim=True).float()
+    num = num.unsqueeze(2)
+    num2 = (num - 1) * num
+    mask = mask.unsqueeze(1) + mask.unsqueeze(2)
+    mask = mask.eq(2)
+
+    dist = tag_avg.unsqueeze(1) - tag_avg.unsqueeze(2)
+    dist = 1 - torch.abs(dist)
+    dist = nn.functional.relu(dist, inplace=True)
+    dist = dist - 1 / (num + 1e-4)
+    dist = dist / (num2 + 1e-4)
+    dist = dist[mask]
+    push = dist.sum()
+    return pull, push
+
 def _neg_loss(preds, targets):
   pos_inds = targets == 1  # todo targets > 1-epsilon ?
   neg_inds = targets < 1  # todo targets < 1-epsilon ?
@@ -61,7 +92,10 @@ def _reg_loss(regs, gt_regs, mask):
   loss = sum([F.smooth_l1_loss(r[mask], gt_regs[mask], reduction='sum') / num for r in regs])
   return loss / len(regs)
 
-
+def _sigmoid(x):
+    x = torch.clamp(x.sigmoid_(), min=1e-4, max=1 - 1e-4)
+    return x
+    
 class Loss(nn.Module):
   def __init__(self, model):
     super(Loss, self).__init__()
@@ -84,3 +118,59 @@ class Loss(nn.Module):
 
     loss = focal_loss + 0.1 * pull_loss + 0.1 * push_loss + reg_loss
     return loss.unsqueeze(0), outputs
+
+class AELossLine(nn.Module):
+    def __init__(self, pull_weight=1, push_weight=1, regr_weight=1, focal_loss=_neg_loss, lamda=4, lamdb=2):
+        super(AELossLine, self).__init__()
+
+        self.pull_weight = pull_weight
+        self.push_weight = push_weight
+        self.regr_weight = regr_weight
+        self.focal_loss  = focal_loss
+        self.ae_loss     = _ae_line_loss
+        self.regr_loss   = _reg_loss
+        self.lamda = lamda
+        self.lamdb = lamdb
+
+    def forward(self, outs, targets):
+        stride = 5
+        key_heats = outs[0::stride]
+        hybrid_heats = outs[1::stride]
+        key_tags  = outs[2::stride]
+        key_tags_grouped  = outs[3::stride]
+        key_regrs = outs[4::stride]
+
+
+        gt_key_heat = targets[0]
+        gt_hybrid_heat = targets[1]
+        gt_mask    = targets[2]
+        gt_mask_grouped = targets[3]
+        gt_key_regr = targets[4]
+
+        # focal loss
+        focal_loss = 0
+
+        key_heats = [_sigmoid(t) for t in key_heats]
+        hybrid_heats = [_sigmoid(b) for b in hybrid_heats]
+
+        focal_loss += self.focal_loss(key_heats, gt_key_heat, self.lamda, self.lamdb)
+        focal_loss += self.focal_loss(hybrid_heats, gt_hybrid_heat, self.lamda, self.lamdb)
+
+        # tag loss
+        pull_loss = 0
+        push_loss = 0
+
+        for key_tag_grouped in key_tags_grouped:
+            pull, push = self.ae_loss(key_tag_grouped, gt_mask_grouped)
+            pull_loss += pull
+            push_loss += push
+        pull_loss = self.pull_weight * pull_loss
+        push_loss = self.push_weight * push_loss
+
+        regr_loss = 0
+        for key_regr in key_regrs:
+            regr_loss += self.regr_loss(key_regr, gt_key_regr, gt_mask)
+        regr_loss = self.regr_weight * regr_loss
+
+        loss = (focal_loss + pull_loss + push_loss + regr_loss) / len(key_heats)
+        return loss.unsqueeze(0)
