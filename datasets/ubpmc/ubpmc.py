@@ -35,7 +35,7 @@ COCO_EIGEN_VECTORS = [[-0.58752847, -0.69563484, 0.41340352],
                       [-0.5832747, 0.00994535, -0.81221408],
                       [-0.56089297, 0.71832671, 0.41158938]]
 class UBPMCDataset_Bar(Dataset):
-    def __init__(self, data_dir, is_Training =False, split_ratio=1.0, gaussian=True, img_size=511):
+    def __init__(self, data_dir, is_Training =False, split_ratio=0.8, gaussian=True, img_size=511):
         #self.split = dataset_split
         self.num_classes = 1
 
@@ -88,9 +88,11 @@ class UBPMCDataset_Bar(Dataset):
                     self.all_annotations[filename] = np.asfarray(bboxes)
                
                 f.close()
-
-        self.images = list(self.all_annotations.keys())[:10]
-
+        split = int(len(self.all_annotations.keys())*split_ratio)
+        if self.is_training:
+            self.images = list(self.all_annotations.keys())[:split]
+        else:
+            self.images = list(self.all_annotations.keys())[split:len(self.all_annotations.keys())]
 
 
         self.max_objs = 128
@@ -195,7 +197,8 @@ class UBPMCDataset_Bar(Dataset):
             inds_br[0] = iybr * self.feature_map_size['w'] + ixbr
 
         return {'image': image,
-            'hmap_tl': hmap_tl, 'hmap_br': hmap_br,
+            'hmap_tl': hmap_tl, 'hmap_br'
+: hmap_br,
             'regs_tl': regs_tl, 'regs_br': regs_br,
             'inds_tl': inds_tl, 'inds_br': inds_br,
             'ind_masks': ind_masks}

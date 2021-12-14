@@ -128,7 +128,7 @@ def main():
 
   # Dataset_eval = COCO_eval if cfg.dataset == 'coco' else UBPMCDataset_Bar#PascalVOC_eval
   #val_dataset = Dataset_eval(cfg.data_dir, 'val', test_scales=[1.], test_flip=False)
-  val_dataset = Dataset_eval(cfg.data_dir,is_Training=True)
+  val_dataset = Dataset_eval(cfg.data_dir,is_Training=False)
   val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1,
                                            shuffle=False, num_workers=1, pin_memory=True,
                                            )#collate_fn=val_dataset.collate_fn
@@ -164,8 +164,10 @@ def main():
         loss = bar_chart_loss(outputs,batch)
 
       optimizer.zero_grad()
-      loss[0].backward()
+      loss.backward()
       optimizer.step()
+      print(f"Training loss is {loss}")
+      '''
       (focal_loss,reg_loss,pull_loss,push_loss) = loss[1]
       if batch_idx % cfg.log_interval == 0:
         duration = time.perf_counter() - tic
@@ -180,6 +182,7 @@ def main():
         summary_writer.add_scalar('pull_loss', pull_loss.item(), step)
         summary_writer.add_scalar('push_loss', push_loss.item(), step)
         summary_writer.add_scalar('reg_loss', reg_loss.item(), step)
+        '''
     return
 
   def val_map(epoch):
@@ -195,11 +198,15 @@ def main():
           batch[k] = batch[k].to(device=cfg.device, non_blocking=True)
 
           outputs = model(batch)
-          tl_detections = outputs[0]
-          br_detection = outputs[1]
+          if 'bar' in cfg.arch:
+            loss = bar_chart_loss(outputs,batch)
+            print(f"validatation loss :: {loss}")
+         #$$$$$$ below for testing script $$$####
+          # tl_detections = outputs[0]
+          # br_detection = outputs[1]
 
-          bar_data = GroupBarRaw(batch['image'],tl_detections,br_detection)
-          #TODO WRITE BBOXES TO FILE FOR EVALUATION
+          # bar_data = GroupBarRaw(batch['image'],tl_detections,br_detection)
+          # #TODO WRITE BBOXES TO FILE FOR EVALUATION
 
   print('Starting training...')
   for epoch in range(1, cfg.num_epochs + 1):

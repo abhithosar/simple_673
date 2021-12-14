@@ -351,7 +351,8 @@ class exkp(nn.Module):
     return None
 
   def bar_chart_val(self,inputs):
-    output = self.train_loop(inputs,for_val=True)
+    output = self.train_loop(inputs,for_val=Fals
+    )
     K=100
     kernel = 1
     ae_threshold = 1
