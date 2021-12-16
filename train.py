@@ -29,6 +29,7 @@ from utils.keypoint import _decode, _rescale_dets, _tranpose_and_gather_feature
 from lib.nms.nms import soft_nms, soft_nms_merge
 
 from chart_models.bar.bar_chart_kp_detection import get_bar_chart_model,bar_chart_loss
+from chart_models.line.line_chart_kp_detection import get_line_chart_model, line_chart_loss
 
 from chart_models.bar.Bar_Rule import GroupBarRaw
 
@@ -42,8 +43,9 @@ parser.add_argument('--root_dir', type=str, default='./')
 parser.add_argument('--data_dir', type=str, default='./data')
 parser.add_argument('--log_name', type=str, default='test')
 
-parser.add_argument('--dataset', type=str, default='ubpmc', choices=['coco', 'pascal'])
-parser.add_argument('--arch', type=str, default='ubpmc_bar')
+#parser.add_argument('--dataset', type=str, default='ubpmc', choices=['coco', 'pascal'])
+#parser.add_argument('--arch', type=str, default='ubpmc_bar')
+parser.add_argument('--arch', type=str, default='ubpmc_line')
 
 parser.add_argument('--img_size', type=int, default=511)
 parser.add_argument('--split_ratio', type=float, default=1.0)
@@ -59,7 +61,8 @@ parser.add_argument('--val_interval', type=int, default=1)
 parser.add_argument('--num_workers', type=int, default=2)
 
 
-parser.add_argument('--chart_type', type=str, default='bar')
+#parser.add_argument('--chart_type', type=str, default='bar')
+parser.add_argument('--chart_type', type=str, default='line')
 
 cfg = parser.parse_args()
 
@@ -135,7 +138,9 @@ def main():
 
   print('Creating model...')
   if 'bar' in cfg.arch:
-    model = get_bar_chart_model('tiny_hourglass')
+    model = get_bar_chart_model('tiny_hourglass',False)
+  if 'line' in cfg.arch:
+    model = get_line_chart_model('tiny_hourglass',False)
 
 
   # if cfg.dist:
@@ -162,6 +167,8 @@ def main():
       outputs = model(batch)#batch['image'])
       if 'bar' in cfg.arch:
         loss = bar_chart_loss(outputs,batch)
+      if 'line' in cfg.arch:
+        loss = line_chart_loss(outputs,batch)
 
       optimizer.zero_grad()
       loss.backward()
@@ -193,14 +200,39 @@ def main():
     results = {}
     with torch.no_grad():
       #TODO LOAD batch['image'] from PIL image
-      for batch_idx, batch in enumerate(train_loader):
-        for k in batch:
-          batch[k] = batch[k].to(device=cfg.device, non_blocking=True)
+      for batch_idx, batch_val in enumerate(val_loader):
+        for h in batch_val:
+          print(h)
+        if 'bar' in cfg.arch:
+          batch_val['image'] = batch_val['image'].to(device=cfg.device, non_blocking=True)
+          batch_val['hmap_tl'] = batch_val['hmap_tl'].to(device=cfg.device, non_blocking=True)
+          batch_val['hmap_br'] = batch_val['hmap_br'].to(device=cfg.device, non_blocking=True)
+          batch_val['regs_tl'] = batch_val['regs_tl'].to(device=cfg.device, non_blocking=True)
+          batch_val['regs_br'] = batch_val['regs_br'].to(device=cfg.device, non_blocking=True)
+          batch_val['inds_tl'] = batch_val['inds_tl'].to(device=cfg.device, non_blocking=True)
+          batch_val['inds_br'] = batch_val['inds_br'].to(device=cfg.device, non_blocking=True)
+          batch_val['ind_masks'] = batch_val['ind_masks'].to(device=cfg.device, non_blocking=True)
+        elif 'line' in cfg.arch:
+          batch_val['image'] = batch_val['image'].to(device=cfg.device, non_blocking=True)
+          batch_val['key_heatmap'] = batch_val['key_heatmap'].to(device=cfg.device, non_blocking=True)
+          batch_val['key_regrs'] = batch_val['key_regrs'].to(device=cfg.device, non_blocking=True)
+          batch_val['key_tags'] = batch_val['key_tags'].to(device=cfg.device, non_blocking=True)
+          batch_val['tag_masks'] = batch_val['tag_masks'].to(device=cfg.device, non_blocking=True)
+          batch_val['key_tags_grouped'] = batch_val['key_tags_grouped'].to(device=cfg.device, non_blocking=True)
+          batch_val['tag_group_lens'] = batch_val['tag_group_lens'].to(device=cfg.device, non_blocking=True)
+          batch_val['hybrid_heatmaps'] = batch_val['hybrid_heatmaps'].to(device=cfg.device, non_blocking=True)
+          batch_val['tag_masks_grouped'] = batch_val['tag_masks_grouped'].to(device=cfg.device, non_blocking=True)
+        #batch_val['tag_masks_grouped'] = batch_val['tag_masks_grouped'].to(device=cfg.device, non_blocking=True)
+        # for k in batch_val.keys():
+          
 
-          outputs = model(batch)
-          if 'bar' in cfg.arch:
-            loss = bar_chart_loss(outputs,batch)
-            print(f"validatation loss :: {loss}")
+        outputs = model(batch_val)
+        if 'bar' in cfg.arch:
+          loss = bar_chart_loss(outputs,batch_val)
+        if 'line' in cfg.arch:
+          loss = line_chart_loss(outputs,batch_val)
+          
+          print(f"validatation loss :: {loss}")
          #$$$$$$ below for testing script $$$####
           # tl_detections = outputs[0]
           # br_detection = outputs[1]
@@ -216,7 +248,8 @@ def main():
     ################## commented for now, output will be generated later in test model script
     if cfg.val_interval > 0 and epoch % cfg.val_interval == 0:
       val_map(epoch)
-    print(saver.save(model.module.state_dict(), 'checkpoint'))
+    #TODO Model Checkpointing is remaining required for test script
+    #print(saver.save(model.module.state_dict(), 'checkpoint'))
     lr_scheduler.step(epoch)  # move to here after pytorch1.1.0
 
   summary_writer.close()

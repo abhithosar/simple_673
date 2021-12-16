@@ -199,9 +199,10 @@ class kp_module(nn.Module):
 
 
 class exkp(nn.Module):
-  def __init__(self, n, nstack, dims, modules, num_classes=1, cnv_dim=256,c_type='bar'):
+  def __init__(self, n, nstack, dims, modules, num_classes=1, cnv_dim=256,c_type='bar',for_inference=False):
     super(exkp, self).__init__()
     self.chart_type = c_type
+    self.for_inference = for_inference
     self.nstack = nstack
 
     curr_dim = dims[0]
@@ -240,7 +241,7 @@ class exkp(nn.Module):
         key_heat[-1].bias.data.fill_(-2.19)
         hybrid_heat[-1].bias.data.fill_(-2.19)
       
-      self.key_regrs = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, num_classes) for _ in range(nstack)])
+      self.key_regrs = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 2) for _ in range(nstack)])
       self.key_tags = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 1) for _ in range(nstack)])
 
     self.inters = nn.ModuleList([residual(3, curr_dim, curr_dim) for _ in range(nstack - 1)])
@@ -270,7 +271,10 @@ class exkp(nn.Module):
       return self.train_loop(inputs)
     else:
       if self.chart_type == 'bar':
-        return self.bar_chart_val(inputs)
+        if self.for_inference:
+          return self.bar_chart_val(inputs)
+        else:
+          return self.train_loop(inputs)
       return self.test_looop()
 
   def train_loop(self, inputs, for_val=False):
@@ -305,9 +309,6 @@ class exkp(nn.Module):
           #outs.append([hmap_tl, hmap_br, embd_tl, embd_br, regs_tl, regs_br])
           outs.append([hmap_tl, hmap_br, regs_tl, regs_br])
 
-
-    
-
         if self.chart_type == 'pie':
           center_cnv = self.cnvs_tl[ind](cnv)
           key_cnv = self.cnvs_br[ind](cnv)
@@ -319,7 +320,6 @@ class exkp(nn.Module):
           key_regr_br = [_tranpose_and_gather_feature(e, inputs['key_inds_br']) for e in key_regr]
 
           outs.append([center_heat, key_heat, center_regr, key_regr_tl, key_regr_br])
-
         
         if self.chart_type == 'line':
           key_point_cnv = self.key_cnvs[ind](cnv)
@@ -329,12 +329,15 @@ class exkp(nn.Module):
           key_tag_ori = self.key_tags[ind](cnv)
           key_regrs_ori = self.key_regrs[ind](key_point_cnv)
 
-          key_tag  = [_tranpose_and_gather_feature(e, inputs['key_inds']) for e in key_tag_ori]
-          key_regr = [_tranpose_and_gather_feature(e, inputs['key_inds']) for e in key_regrs_ori]
+          # key_tag  = [_tranpose_and_gather_feature(e, inputs['key_tags']) for e in key_tag_ori]
+          # key_regr = [_tranpose_and_gather_feature(e, inputs['key_tags']) for e in key_regrs_ori]
+
+          key_tag  = _tranpose_and_gather_feature(key_tag_ori, inputs['key_tags'])
+          key_regr = _tranpose_and_gather_feature(key_regrs_ori, inputs['key_tags']) 
 
           key_tag_grouped = []
           for g_id in range(16):
-            key_tag_grouped.append(torch.unsqueeze(_tranpose_and_gather_feature(key_tag_ori, inputs['key_inds_grouped'][g_id,:]), 1))
+            key_tag_grouped.append(torch.unsqueeze(_tranpose_and_gather_feature(key_tag_ori, inputs['key_tags_grouped'][:,g_id,:]), 1))
           key_tag_grouped = torch.cat(key_tag_grouped, 1)
 
           outs.append([key_heat, hybrid_heat, key_tag, key_tag_grouped, key_regr])
@@ -351,14 +354,14 @@ class exkp(nn.Module):
     return None
 
   def bar_chart_val(self,inputs):
-    output = self.train_loop(inputs,for_val=Fals
+    output = self.train_loop(inputs,for_val=False
     )
     K=100
     kernel = 1
     ae_threshold = 1
     num_dets =1000
 
-    tl_heat, br_heat, tl_regr, br_regr = output[0],output[1],output[2],output[3]
+    tl_heat, br_heat, tl_regr, br_regr = output[0][0],output[0][1],output[0][2],output[0][3]
     batch, cat, height, width = tl_heat.size()
 
     tl_heat = torch.sigmoid(tl_heat)
@@ -400,12 +403,13 @@ class exkp(nn.Module):
 
 
 # tiny hourglass is for f**king debug
-def get_hourglass(hourglass_type,chart_type):
+def get_hourglass(hourglass_type,chart_type,for_inference):
   get_hourglass_dict = \
     {
-    'large_hourglass' : exkp(n=5, nstack=2, dims=[256, 256, 384, 384, 384, 512], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type),
-    'small_hourglass' : exkp(n=5, nstack=1, dims=[256, 256, 384, 384, 384, 512], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type),
-    'tiny_hourglass'  : exkp(n=5, nstack=1, dims=[256, 128, 256, 256, 256, 384], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type)
+    #'large_hourglass' : exkp(n=5, nstack=2, dims=[256, 256, 384, 384, 384, 512], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type,for_inference=for_inference),
+    'large_hourglass' : exkp(n=5, nstack=1, dims=[256, 256, 384, 384, 384, 512], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type,for_inference=for_inference),
+    'small_hourglass' : exkp(n=5, nstack=1, dims=[256, 256, 384, 384, 384, 512], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type,for_inference=for_inference),
+    'tiny_hourglass'  : exkp(n=5, nstack=1, dims=[256, 128, 256, 256, 256, 384], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type,for_inference=for_inference)
     }
   return get_hourglass_dict[hourglass_type]
     

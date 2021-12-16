@@ -6,8 +6,8 @@ from utils.keypoint import _decode, _rescale_dets, _tranpose_and_gather_feature
 from utils.losses import _neg_loss, _ae_loss, _reg_loss, Loss
 
 
-def get_bar_chart_model(hourglass_framework_type,):
-    model = get_hourglass(hourglass_framework_type,'bar')
+def get_bar_chart_model(hourglass_framework_type,for_inference):
+    model = get_hourglass(hourglass_framework_type,'bar',for_inference)
     return model
 
 def bar_chart_loss(preds,target):

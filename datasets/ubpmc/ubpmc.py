@@ -52,14 +52,12 @@ class UBPMCDataset_Bar(Dataset):
 
         self.data_dir = os.path.join(data_dir, 'ubpmc')
         
-        #TODO Generalized this path assignment for chart type
-        self.img_dir = os.path.join(self.data_dir, "images","horizontal_bar")
-       
-        
         classname = 'horizontal_bar'
+        #TODO Generalized this path assignment for chart type
+        self.img_dir = os.path.join(self.data_dir, "images",classname)
+       
         annotations_folder = os.path.join(self.data_dir, "annotations_JSON", classname, "*.json")
         
-
         self.all_annotations = dict()
         all_files = glob.glob(annotations_folder)
         for file in all_files:
@@ -197,8 +195,7 @@ class UBPMCDataset_Bar(Dataset):
             inds_br[0] = iybr * self.feature_map_size['w'] + ixbr
 
         return {'image': image,
-            'hmap_tl': hmap_tl, 'hmap_br'
-: hmap_br,
+            'hmap_tl': hmap_tl, 'hmap_br': hmap_br,
             'regs_tl': regs_tl, 'regs_br': regs_br,
             'inds_tl': inds_tl, 'inds_br': inds_br,
             'ind_masks': ind_masks}
@@ -255,7 +252,7 @@ class UBPMCDataset_Line(Dataset):
                             line.append(linept['x'])        
                             line.append(linept['y'])        
                         bboxes.append(line)
-                    self.all_annotations[filename] = np.asfarray(bboxes)
+                    self.all_annotations[filename] = np.asfarray(self.pad_to_dense(bboxes))
                
                 f.close()
         self.images = list(self.all_annotations.keys())
@@ -270,6 +267,17 @@ class UBPMCDataset_Line(Dataset):
 
         self.num_samples = len(self.images)
 
+    def pad_to_dense(self,M):
+        """Appends the minimal required amount of zeroes at the end of each 
+     array in the jagged array `M`, such that `M` looses its jagedness."""
+
+        maxlen = max(len(r) for r in M)
+
+        Z = np.zeros((len(M), maxlen))
+        for enu, row in enumerate(M):
+            Z[enu, :len(row)] += row 
+        return Z
+
     def __getitem__(self, index: int):
         
         image_id = self.images[index]
@@ -283,7 +291,7 @@ class UBPMCDataset_Line(Dataset):
             bboxes,
             random_scales=self.random_scales,
             new_size=self.image_size,
-            padding=self.padding)
+            padding=self.padding,isline=False)
         else:
             
             height, width = image.shape[0:2]
@@ -314,6 +322,7 @@ class UBPMCDataset_Line(Dataset):
             image[:] = image[:, ::-1, :]
 
         if self.is_training:
+            image = image.astype(np.float32)/255.
             color_jittering_(self.data_range, image)
             lighting_(self.data_range, image, 0.1, self.eig_val, self.eig_vec)
 
@@ -365,8 +374,8 @@ class UBPMCDataset_Line(Dataset):
                             draw_gaussian(key_heatmaps[0], [detection[2 * k], detection[2 * k + 1]], radius)
                             draw_gaussian(hybrid_heatmaps[0], [detection[2 * k], detection[2 * k + 1]],
                                           radius)
-                    else:
-                        key_heatmaps[0, detection[2 * k + 1], detection[2 * k]] = 1
+            else:
+                key_heatmaps[0, detection[2 * k + 1], detection[2 * k]] = 1
 
             
             for k in range(int(len(detection) / 2)):
@@ -401,10 +410,13 @@ class UBPMCDataset_Line(Dataset):
                 'tag_masks_grouped' : tag_masks_grouped
             }
 
+    def __len__(self) -> int:
+        return self.num_samples
 
 
 if __name__ == '__main__':
     #import_parents(level=3)
-    ubpmc = UBPMCDataset_Bar("data",is_Training=True)
+    # ubpmc = UBPMCDataset_Bar("data",is_Training=True)
+    ubpmc = UBPMCDataset_Line("data",is_Training=True)
     ubpmc.__getitem__(32)
     sdf = 0
