@@ -35,7 +35,9 @@ COCO_EIGEN_VECTORS = [[-0.58752847, -0.69563484, 0.41340352],
                       [-0.5832747, 0.00994535, -0.81221408],
                       [-0.56089297, 0.71832671, 0.41158938]]
 class UBPMCDataset_Bar(Dataset):
-    def __init__(self, data_dir, is_Training =False, split_ratio=0.8, gaussian=True, img_size=511):
+    def __init__(self, data_dir, is_Training =False, 
+                       split_ratio=0.8, gaussian=True, 
+                       img_size=511, dataset=None, arch=None, is_inference=False,testdb='ubpmc'):
         #self.split = dataset_split
         self.num_classes = 1
 
@@ -50,6 +52,19 @@ class UBPMCDataset_Bar(Dataset):
         self.gaussian_iou = 0.3
         self.padding = 128
 
+        dataset_split = None
+        if 'bar' in arch:
+            if is_Training:
+                dataset_split = dataset['ubpmc_train_setup_bar']['train']
+            else:
+                dataset_split = dataset['ubpmc_train_setup_bar']['train_val']
+            if is_inference:
+                if ubpmc in testdb:
+                    dataset_split = dataset['ubpmc_train_setup_bar']['test_pmc']
+                else:
+                    dataset_split = dataset['ubpmc_train_setup_bar']['train_synth']
+        
+
         self.data_dir = os.path.join(data_dir, 'ubpmc')
         
         classname = 'horizontal_bar'
@@ -60,11 +75,12 @@ class UBPMCDataset_Bar(Dataset):
         
         self.all_annotations = dict()
         all_files = glob.glob(annotations_folder)
-        for file in all_files:
+        # for file in all_files:
+        for file in dataset_split:
             data = dict()
-            filename = os.path.join(self.img_dir, os.path.splitext(os.path.basename(file))[0] + ".jpg")
+            filename = file[1]#os.path.join(self.img_dir, os.path.splitext(os.path.basename(file))[0] + ".jpg")
             
-            with open(file) as f:
+            with open(file[0]) as f:
                 data = json.load(f)
                 if 'task6_output' in data and data['task6_output'] is not None:
                     bboxes = []
@@ -87,10 +103,10 @@ class UBPMCDataset_Bar(Dataset):
                
                 f.close()
         split = int(len(self.all_annotations.keys())*split_ratio)
-        if self.is_training:
-            self.images = list(self.all_annotations.keys())[:split]
-        else:
-            self.images = list(self.all_annotations.keys())[split:len(self.all_annotations.keys())]
+       # if self.is_training:
+        self.images = list(self.all_annotations.keys())
+        #else:
+           # self.images = list(self.all_annotations.keys())[split:len(self.all_annotations.keys())]
 
 
         self.max_objs = 128
@@ -206,7 +222,8 @@ class UBPMCDataset_Bar(Dataset):
 #class UBPMCDataset_Eval(UBPMCDataset_Bar):
 
 class UBPMCDataset_Line(Dataset):
-    def __init__(self,data_dir,is_Training =False, split_ratio=1.0, gaussian=True, img_size=511):
+    def __init__(self,data_dir,is_Training =False, split_ratio=1.0, gaussian=True, img_size=511,
+    dataset=None, arch=None, is_inference=False,testdb='ubpmc'):
         
         self.num_classes = 1
 
@@ -221,6 +238,19 @@ class UBPMCDataset_Line(Dataset):
         self.gaussian_iou = 0.3
         self.padding = 128
 
+        dataset_split = None
+        if 'line' in arch:
+            if is_Training:
+                dataset_split = dataset['ubpmc_train_setup_line']['train']
+            else:
+                dataset_split = dataset['ubpmc_train_setup_line']['train_val']
+            if is_inference:
+                if ubpmc in testdb:
+                    dataset_split = dataset['ubpmc_train_setup_line']['test_pmc']
+                else:
+                    dataset_split = dataset['ubpmc_train_setup_line']['train_synth']
+        
+
         self.data_dir = os.path.join(data_dir, 'ubpmc')
         classname = 'line'
         self.img_dir = os.path.join(self.data_dir, "images",classname)
@@ -229,11 +259,13 @@ class UBPMCDataset_Line(Dataset):
         self.all_annotations = dict()
         all_files = glob.glob(annotations_folder)
 
-        for file in all_files:
+        #for file in all_files:
+        for file in dataset_split:
             data = dict()
-            filename = os.path.join(self.img_dir, os.path.splitext(os.path.basename(file))[0] + ".jpg")
+            filename = file[1]#os.path.join(self.img_dir, os.path.splitext(os.path.basename(file))[0] + ".jpg")
             
-            with open(file) as f:
+            #with open(file) as f:
+            with open(file[0]) as f:
                 data = json.load(f)
                 if 'task6_output' in data and data['task6_output'] is not None:
                     bboxes = []
@@ -255,7 +287,7 @@ class UBPMCDataset_Line(Dataset):
                     self.all_annotations[filename] = np.asfarray(self.pad_to_dense(bboxes))
                
                 f.close()
-        self.images = list(self.all_annotations.keys())
+        self.images = list(self.all_annotations.keys())[:2]
 
 
 

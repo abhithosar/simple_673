@@ -86,7 +86,12 @@ pmc_train_adobe_test_line = adobe_data_partition['line'][0]\
                      + adobe_data_partition['line'][2]\
                      + adobe_data_partition['line'][3]
 #1.
-ubpmc_train_setup_line = [pmc_training_set_line,pmc_train_val_set_line,pmc_test_eval_line,pmc_train_adobe_test_line]
+ubpmc_train_setup_line = {
+                           "train": pmc_training_set_line,
+                            "train_val":pmc_train_val_set_line,
+                            "test_pmc":pmc_test_eval_line,
+                            "test_synth":pmc_train_adobe_test_line
+}
 
 synth_training_set_line = adobe_data_partition['line'][0]+ adobe_data_partition['line'][1]+adobe_data_partition['line'][2]
 synth_train_val_set_line = adobe_data_partition['line'][0]+ adobe_data_partition['line'][1]+adobe_data_partition['line'][2]
@@ -98,7 +103,12 @@ synth_train_ubpmc_test_line = ubpmc_data_partition['line'][0]\
                         +ubpmc_data_partition['line'][3]
 
 #2.
-synth_train_setup_line = [synth_training_set_line,synth_train_val_set_line,synth_test_eval_line,synth_train_ubpmc_test_line]
+synth_train_setup_line =    {
+                            "train":synth_training_set_line,
+                            "train_val":synth_train_val_set_line,
+                            "test_synth":synth_test_eval_line,
+                            "test_pmc":synth_train_ubpmc_test_line
+}
 #--------------------------
 
 ### SCATTER
@@ -111,8 +121,12 @@ pmc_train_adobe_test_scatter = adobe_data_partition['scatter'][0]\
                      + adobe_data_partition['scatter'][3]
 
 #3.
-ubpmc_train_setup_scatter = [pmc_training_set_scatter,pmc_train_val_set_scatter,pmc_test_eval_scatter,pmc_train_adobe_test_scatter]
-
+ubpmc_train_setup_scatter = {
+                            "train":pmc_training_set_scatter,
+                            "train_val":pmc_train_val_set_scatter,
+                            "test_pmc":pmc_test_eval_scatter,
+                            "test_synth":pmc_train_adobe_test_scatter
+}
 
 synth_training_set_scatter = adobe_data_partition['scatter'][0]+ adobe_data_partition['scatter'][1]+adobe_data_partition['scatter'][2]
 synth_train_val_set_scatter = adobe_data_partition['scatter'][0]+ adobe_data_partition['scatter'][1]+adobe_data_partition['scatter'][2]
@@ -124,7 +138,12 @@ synth_train_ubpmc_test_scatter = ubpmc_data_partition['scatter'][0]\
                         +ubpmc_data_partition['scatter'][3]
 
 #4.
-synth_train_setup_scatter = [synth_training_set_scatter,synth_train_val_set_scatter,synth_test_eval_scatter,synth_train_ubpmc_test_scatter]
+synth_train_setup_scatter = {
+                            "train":synth_training_set_scatter,
+                            "train_val":synth_train_val_set_scatter,
+                            "test_synth":synth_test_eval_scatter,
+                            "test_pmc":synth_train_ubpmc_test_scatter
+}
 
 #-----------------------
 
@@ -144,7 +163,12 @@ pmc_train_adobe_test_box = adobe_data_partition['vbox'][0]\
                      + adobe_data_partition['hbox'][3]
 
 #5.
-ubpmc_train_setup_box = [pmc_training_set_box,pmc_train_val_set_box,pmc_test_eval_box,pmc_train_adobe_test_box]
+ubpmc_train_setup_box = {
+                         "train":pmc_training_set_box,
+                         "train_val":pmc_train_val_set_box,
+                         "test_pmc":pmc_test_eval_box,
+                         "test_synth":pmc_train_adobe_test_box
+                         }
 
 
 synth_training_set_box = adobe_data_partition['hbox'][0]+ adobe_data_partition['hbox'][1]\
@@ -155,7 +179,7 @@ synth_training_set_box = adobe_data_partition['hbox'][0]+ adobe_data_partition['
 synth_train_val_set_box = adobe_data_partition['hbox'][0]+ adobe_data_partition['hbox'][1]\
                          +adobe_data_partition['hbox'][2]\
                          +adobe_data_partition['vbox'][0]+adobe_data_partition['vbox'][1]\
-                             +adobe_data_partition['vbox'][2]
+                         +adobe_data_partition['vbox'][2]
 
 synth_test_eval_box = adobe_data_partition['hbox'][3]+adobe_data_partition['vbox'][3]
 
@@ -165,7 +189,12 @@ synth_train_ubpmc_test_box = ubpmc_data_partition['vertical_box'][0]\
                         +ubpmc_data_partition['vertical_box'][3]
 
 #6.
-synth_train_setup_box = [synth_training_set_box,synth_train_val_set_box,synth_test_eval_box,synth_train_ubpmc_test_box]
+synth_train_setup_box = {
+                        "train":synth_training_set_box,
+                        "train_val":synth_train_val_set_box,
+                        "test_pmc":synth_test_eval_box,
+                        "test_synth":synth_train_ubpmc_test_box
+                        }
 
 
 #----------------------------
@@ -202,7 +231,12 @@ pmc_train_adobe_test_bar = adobe_data_partition['vStack'][0]\
                      + adobe_data_partition['hGroup'][3]\
 
 #7.
-ubpmc_train_setup_bar = [pmc_training_set_bar,pmc_train_val_set_bar,pmc_test_eval_bar,pmc_train_adobe_test_bar]
+ubpmc_train_setup_bar = {
+                        "train":pmc_training_set_bar,
+                        "train_val":pmc_train_val_set_bar,
+                        "test_pmc":pmc_test_eval_bar,
+                        "test_synth":pmc_train_adobe_test_bar
+                        }
 
 
 
@@ -245,10 +279,12 @@ synth_train_ubpmc_test_bar = ubpmc_data_partition['vertical_bar'][0]+ubpmc_data_
                       +ubpmc_data_partition["horizontal_bar"][2]+ubpmc_data_partition['horizontal_bar'][3]
 
 #8.
-synth_train_setup_bar = [synth_training_set_bar,
-                         synth_train_val_set_bar,
-                         synth_test_eval_bar,
-                         synth_train_ubpmc_test_bar]
+synth_train_setup_bar = {
+                         "train":synth_training_set_bar,
+                         "train_val":synth_train_val_set_bar,
+                         "test_synth":synth_test_eval_bar,
+                         "test_pmc":synth_train_ubpmc_test_bar
+                         }
 
 
 
@@ -259,10 +295,10 @@ partioned_data = {'ubpmc_train_setup_line':ubpmc_train_setup_line,'synth_train_s
 
 
 # --------------------------------
-with open('scrap/filename.pickle', 'wb') as handle:
-    pickle.dump(partioned_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+#with open('scrap/db_split.pickle', 'wb') as handle:
+ #   pickle.dump(partioned_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-with open('scrap/filename.pickle', 'rb') as handle:
+with open('scrap/db_split.pickle', 'rb') as handle:
     b = pickle.load(handle)
 
 

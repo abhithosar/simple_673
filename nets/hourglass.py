@@ -84,7 +84,7 @@ class convolution(nn.Module):
     self.relu = nn.ReLU(inplace=True)
 
   def forward(self, x):
-    conv = self.conv(x)
+    conv = self.conv(x.float())
     bn = self.bn(conv)
     relu = self.relu(bn)
     return relu
@@ -197,6 +197,34 @@ class kp_module(nn.Module):
     up2 = self.up(low3)  # 下支路upsample
     return up1 + up2  # 合并上下支路
 
+class line_cls(nn.Module):
+    def __init__(self, inp_dim, cat_num):
+        super(line_cls, self).__init__()
+        self.mid_ = torch.nn.Linear(inp_dim, 256)
+        self.final_ = fully_connected(256, cat_num)
+    def forward(self, x):
+        fea_dim = x.size(2)
+        x = x.view(-1, fea_dim)
+        mid = torch.tanh(self.mid_(x))
+        final = self.final_(mid)
+        return final
+
+
+class fully_connected(nn.Module):
+    def __init__(self, inp_dim, out_dim, with_bn=True):
+        super(fully_connected, self).__init__()
+        self.with_bn = with_bn
+
+        self.linear = nn.Linear(inp_dim, out_dim)
+        if self.with_bn:
+            self.bn = nn.BatchNorm1d(out_dim)
+        self.relu   = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        linear = self.linear(x)
+        bn     = self.bn(linear) if self.with_bn else linear
+        relu   = self.relu(bn)
+        return relu
 
 class exkp(nn.Module):
   def __init__(self, n, nstack, dims, modules, num_classes=1, cnv_dim=256,c_type='bar',for_inference=False):
@@ -244,6 +272,9 @@ class exkp(nn.Module):
       self.key_regrs = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 2) for _ in range(nstack)])
       self.key_tags = nn.ModuleList([make_kp_layer(cnv_dim, curr_dim, 1) for _ in range(nstack)])
 
+    elif self.chart_type == "line_query":
+      self.cls = nn.ModuleList([line_cls(cnv_dim*8, 2) for _ in range(nstack)])
+
     self.inters = nn.ModuleList([residual(3, curr_dim, curr_dim) for _ in range(nstack - 1)])
 
     self.inters_ = nn.ModuleList([nn.Sequential(nn.Conv2d(curr_dim, curr_dim, (1, 1), bias=False),
@@ -271,6 +302,12 @@ class exkp(nn.Module):
       return self.train_loop(inputs)
     else:
       if self.chart_type == 'bar':
+        if self.for_inference:
+          return self.bar_chart_val(inputs)
+        else:
+          return self.train_loop(inputs)
+      
+      if self.chart_type == 'line':
         if self.for_inference:
           return self.bar_chart_val(inputs)
         else:
@@ -342,6 +379,19 @@ class exkp(nn.Module):
 
           outs.append([key_heat, hybrid_heat, key_tag, key_tag_grouped, key_regr])
 
+        if self.chart_type == 'line_query':
+          ps_features = _tranpose_and_gather_feature(cnv, inputs["ps_inds"])
+          ng_features = _tranpose_and_gather_feature(cnv, inputs["ng_inds"])
+
+          ps_features_group = self._group_features(ps_features, inputs["ps_weight"])
+          ng_features_group = self._group_features(ng_features, inputs["ng_weight"])
+
+          ps_prediction = self.cls(ps_features_group)
+          ng_prediction = self.cls(ng_features_group)
+
+          outs.append([ps_prediction, ng_prediction])
+
+
       if ind < self.nstack - 1:
         inter = self.inters_[ind](inter) + self.cnvs_[ind](cnv)
         inter = self.relu(inter)
@@ -352,6 +402,15 @@ class exkp(nn.Module):
 
   def test_loop(self,):
     return None
+
+  def _group_features(self, features, weight):
+      features = features.view(features.size(0), -1, 4, features.size(2))
+      weight = weight.view(weight.size(0), -1, 4)
+      weight = weight.unsqueeze(3)
+      weighted_features = features * weight
+      weighted_features = torch.sum(weighted_features, 2)
+      weighted_features = weighted_features.view(weighted_features.size(0), -1, 8*weighted_features.size(2))
+      return weighted_features
 
   def bar_chart_val(self,inputs):
     output = self.train_loop(inputs,for_val=False

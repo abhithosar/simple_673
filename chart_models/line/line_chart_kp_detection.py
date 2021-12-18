@@ -39,3 +39,6 @@ def line_chart_loss(preds,target):
     reg_loss = _reg_loss(key_regr, batch['key_regrs'], batch['tag_masks'])
     loss = (focal_loss + pull_loss + push_loss + reg_loss) / len(key_heat)    
     return loss.unsqueeze(0)
+
+
+

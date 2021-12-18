@@ -6,13 +6,15 @@ from datetime import datetime
 # os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 import numpy as np
-
+import pickle
 import torch.nn as nn
 import torch.utils.data
 
 from datasets.coco import COCO_eval
 from datasets.pascal import PascalVOC_eval
 
+from datasets.pascal import PascalVOC, PascalVOC_eval
+from datasets.ubpmc.ubpmc import UBPMCDataset_Bar, UBPMCDataset_Line
 from nets.hourglass import get_hourglass
 # from nets.resdcn import get_pose_net
 
@@ -21,6 +23,8 @@ from utils.summary import create_logger
 
 from lib.nms.nms import soft_nms, soft_nms_merge
 
+from chart_models.bar.bar_chart_kp_detection import get_bar_chart_model,bar_chart_loss,get_inference_on_bar
+from chart_models.line.line_chart_kp_detection import get_line_chart_model, line_chart_loss
 # Training settings
 parser = argparse.ArgumentParser(description='cornernet')
 
@@ -29,7 +33,7 @@ parser.add_argument('--data_dir', type=str, default='./data')
 parser.add_argument('--log_name', type=str, default='test')
 
 parser.add_argument('--dataset', type=str, default='coco', choices=['coco', 'pascal'])
-parser.add_argument('--arch', type=str, default='large_hourglass')
+parser.add_argument('--arch', type=str, default='ubpmc_bar')
 
 parser.add_argument('--test_flip', action='store_true')
 parser.add_argument('--test_scales', type=str, default='1')
@@ -41,13 +45,18 @@ parser.add_argument('--w_exp', type=float, default=10)
 
 parser.add_argument('--num_workers', type=int, default=1)
 
+parser.add_argument('--chart_type', type=str, default='line')
+
+parser.add_argument('--train_db',type=str,default='ubpmc',choices=['synth', 'ubpmc'])
+parser.add_argument('--test_db',type=str,default='ubpmc',choices=['synth', 'ubpmc'])
+
 cfg = parser.parse_args()
 
 os.chdir(cfg.root_dir)
 
 cfg.ckpt_dir = os.path.join(cfg.root_dir, 'ckpt', cfg.log_name)
 cfg.log_dir = os.path.join(cfg.root_dir, 'logs', cfg.log_name)
-cfg.pretrain_dir = os.path.join(cfg.ckpt_dir, 'checkpoint.t7')
+cfg.pretrain_dir = os.path.join(cfg.ckpt_dir, f'checkpoint_{cfg.arch}.t7')
 
 os.makedirs(cfg.log_dir, exist_ok=True)
 os.makedirs(cfg.ckpt_dir, exist_ok=True)
@@ -65,19 +74,39 @@ def main():
   cfg.device = torch.device('cuda')
 
   print('Setting up data...')
-  Dataset_eval = COCO_eval if cfg.dataset == 'coco' else PascalVOC_eval
-  dataset = Dataset_eval(cfg.data_dir, 'val', test_scales=cfg.test_scales, test_flip=cfg.test_flip)
-  val_loader = torch.utils.data.DataLoader(dataset, batch_size=1,
+
+
+  dataset_splits = None
+
+  with open('scrap/db_split.pickle', 'rb') as handle:
+    dataset_splits = pickle.load(handle)
+  
+  Dataset_Eval_Dict = {
+    'ubpmc_bar':UBPMCDataset_Bar,#UBPMCDataset_Bar_Eval,
+     'ubpmc_line':UBPMCDataset_Line,
+    'coco':COCO_eval,
+    'pascal':PascalVOC_eval
+  }
+  if cfg.arch in Dataset_Eval_Dict:
+    Dataset_eval = Dataset_Eval_Dict[cfg.arch]
+
+  # Dataset_eval = COCO_eval if cfg.dataset == 'coco' else UBPMCDataset_Bar#PascalVOC_eval
+  #val_dataset = Dataset_eval(cfg.data_dir, 'val', test_scales=[1.], test_flip=False)
+  val_dataset = Dataset_eval(cfg.data_dir,is_Training=False,dataset=dataset_splits,
+                          arch=cfg.arch,
+                          is_inference=True,
+                          testdb='ubpmc')
+  val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=2,
                                            shuffle=False, num_workers=1, pin_memory=True,
-                                           collate_fn=dataset.collate_fn)
+                                           )#collate_fn=val_dataset.collate_fn
 
   print('Creating model...')
-  if 'hourglass' in cfg.arch:
-    model = get_hourglass[cfg.arch]
-  elif 'resdcn' in cfg.arch:
-    model = get_pose_net(num_layers=int(cfg.arch.split('_')[-1]), num_classes=dataset.num_classes)
-  else:
-    raise NotImplementedError
+  if 'bar' in cfg.arch:
+    model = get_bar_chart_model('tiny_hourglass',False)
+  if 'line' in cfg.arch:
+    model = get_line_chart_model('tiny_hourglass',False)
+
+
 
   model = model.to(cfg.device)
   model.load_state_dict(torch.load(cfg.pretrain_dir))
@@ -87,47 +116,22 @@ def main():
   model.eval()
   results = {}
   with torch.no_grad():
-    for inputs in val_loader:
-      img_id, inputs = inputs[0]
-
-      detections = []
-      for scale in inputs:
-        inputs[scale]['image'] = inputs[scale]['image'].to(cfg.device)
-        output = model(inputs[scale]['image'])[-1]
-        dets = _decode(*output, ae_threshold=cfg.ae_threshold, K=cfg.topk, kernel=3)
-        dets = dets.reshape(dets.shape[0], -1, 8).detach().cpu().numpy()
-        if dets.shape[0] == 2:
-          dets[1, :, [0, 2]] = inputs[scale]['fmap_size'][0, 1] - dets[1, :, [2, 0]]
-        dets = dets.reshape(1, -1, 8)
-
-        _rescale_dets(dets, inputs[scale]['ratio'], inputs[scale]['border'], inputs[scale]['size'])
-        dets[:, :, 0:4] /= scale
-        detections.append(dets)
-
-      detections = np.concatenate(detections, axis=1)[0]
-      # reject detections with negative scores
-      detections = detections[detections[:, 4] > -1]
-      classes = detections[..., -1]
-
-      results[img_id] = {}
-      for j in range(dataset.num_classes):
-        keep_inds = (classes == j)
-        results[img_id][j + 1] = detections[keep_inds][:, 0:7].astype(np.float32)
-        soft_nms_merge(results[img_id][j + 1], Nt=cfg.nms_threshold, method=2, weight_exp=cfg.w_exp)
-        # soft_nms(results[img_id][j + 1], Nt=0.5, method=2)
-        results[img_id][j + 1] = results[img_id][j + 1][:, 0:5]
-
-      scores = np.hstack([results[img_id][j][:, -1] for j in range(1, dataset.num_classes + 1)])
-      if len(scores) > dataset.max_objs:
-        kth = len(scores) - dataset.max_objs
-        thresh = np.partition(scores, kth)[kth]
-        for j in range(1, dataset.num_classes + 1):
-          keep_inds = (results[img_id][j][:, -1] >= thresh)
-          results[img_id][j] = results[img_id][j][keep_inds]
-
-  eval_results = dataset.run_eval(results, save_dir=cfg.ckpt_dir)
-  print(eval_results)
-  print('validation ends at %s' % datetime.now())
+    for batch_idx, batch_val in enumerate(val_loader):
+      # if 'bar' in cfg.arch:
+      #     batch_val['image'] = batch_val['image'].to(device=cfg.device, non_blocking=True)
+      #     batch_val['hmap_tl'] = batch_val['hmap_tl'].to(device=cfg.device, non_blocking=True)
+      #     batch_val['hmap_br'] = batch_val['hmap_br'].to(device=cfg.device, non_blocking=True)
+      #     batch_val['regs_tl'] = batch_val['regs_tl'].to(device=cfg.device, non_blocking=True)
+      #     batch_val['regs_br'] = batch_val['regs_br'].to(device=cfg.device, non_blocking=True)
+      #     batch_val['inds_tl'] = batch_val['inds_tl'].to(device=cfg.device, non_blocking=True)
+      #     batch_val['inds_br'] = batch_val['inds_br'].to(device=cfg.device, non_blocking=True)
+      #     batch_val['ind_masks'] = batch_val['ind_masks'].to(device=cfg.device, non_blocking=True)
+      
+      out1,out2 = get_inference_on_bar(model,batch_val['image'])
+      ing = 0
+ # eval_results = dataset.run_eval(results, save_dir=cfg.ckpt_dir)
+ # print(eval_results)
+  #print('validation ends at %s' % datetime.now())
 
 
 if __name__ == '__main__':

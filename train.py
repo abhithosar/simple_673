@@ -10,7 +10,7 @@ from PIL import Image
 # os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 import numpy as np
-
+import pickle 
 import torch.nn as nn
 import torch.utils.data
 import torch.distributed as dist
@@ -45,7 +45,7 @@ parser.add_argument('--log_name', type=str, default='test')
 
 #parser.add_argument('--dataset', type=str, default='ubpmc', choices=['coco', 'pascal'])
 #parser.add_argument('--arch', type=str, default='ubpmc_bar')
-parser.add_argument('--arch', type=str, default='ubpmc_line')
+parser.add_argument('--arch', type=str, default='ubpmc_bar')
 
 parser.add_argument('--img_size', type=int, default=511)
 parser.add_argument('--split_ratio', type=float, default=1.0)
@@ -54,7 +54,7 @@ parser.add_argument('--lr', type=float, default=2.5e-4)
 parser.add_argument('--lr_step', type=str, default='45,60')
 
 parser.add_argument('--batch_size', type=int, default=2)
-parser.add_argument('--num_epochs', type=int, default=70)
+parser.add_argument('--num_epochs', type=int, default=30)
 
 parser.add_argument('--log_interval', type=int, default=100)
 parser.add_argument('--val_interval', type=int, default=1)
@@ -63,6 +63,10 @@ parser.add_argument('--num_workers', type=int, default=2)
 
 #parser.add_argument('--chart_type', type=str, default='bar')
 parser.add_argument('--chart_type', type=str, default='line')
+
+parser.add_argument('--train_db',type=str,default='ubpmc',choices=['synth', 'ubpmc'])
+parser.add_argument('--test_db',type=str,default='ubpmc',choices=['synth', 'ubpmc'])
+
 
 cfg = parser.parse_args()
 
@@ -96,6 +100,14 @@ def main():
   else:
     cfg.device = torch.device('cuda')
 
+  dataset_splits = None
+
+  with open('scrap/db_split.pickle', 'rb') as handle:
+    dataset_splits = pickle.load(handle)
+  
+
+  
+
   print('Setting up data...')
   Dataset_Dict = {
     'ubpmc_bar':UBPMCDataset_Bar,
@@ -103,11 +115,17 @@ def main():
     'coco':COCO,
     'pascal':PascalVOC
   }
+
   if cfg.arch in Dataset_Dict:
     Dataset = Dataset_Dict[cfg.arch]
   # Dataset = COCO if cfg.dataset == 'coco' else UBPMCDataset_Bar#PascalVOC
   #train_dataset = Dataset(cfg.data_dir, 'val', split_ratio=cfg.split_ratio, img_size=cfg.img_size)
-  train_dataset = Dataset(cfg.data_dir,is_Training=True)
+  train_dataset = Dataset(cfg.data_dir,
+                          is_Training=True,
+                          dataset=dataset_splits,
+                          arch=cfg.arch,
+                          is_inference=False,
+                          testdb='ubpmc')
 
   train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset,
                                                                   num_replicas=num_gpus,
@@ -131,8 +149,11 @@ def main():
 
   # Dataset_eval = COCO_eval if cfg.dataset == 'coco' else UBPMCDataset_Bar#PascalVOC_eval
   #val_dataset = Dataset_eval(cfg.data_dir, 'val', test_scales=[1.], test_flip=False)
-  val_dataset = Dataset_eval(cfg.data_dir,is_Training=False)
-  val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1,
+  val_dataset = Dataset_eval(cfg.data_dir,is_Training=False,dataset=dataset_splits,
+                          arch=cfg.arch,
+                          is_inference=False,
+                          testdb='ubpmc')
+  val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=2,
                                            shuffle=False, num_workers=1, pin_memory=True,
                                            )#collate_fn=val_dataset.collate_fn
 
@@ -143,16 +164,16 @@ def main():
     model = get_line_chart_model('tiny_hourglass',False)
 
 
-  # if cfg.dist:
-  #   # model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-  #   model = model.to(cfg.device)
-  #   model = nn.parallel.DistributedDataParallel(model,
-  #                                               device_ids=[cfg.local_rank, ],
-  #                                               output_device=cfg.local_rank)
-  # else:
-  #   # todo don't use this, or wrapped it with utils.losses.Loss() !
-  #   model = nn.DataParallel(model).to(cfg.device)
-  model = model.to(cfg.device)
+  if cfg.dist:
+    # model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+    model = model.to(cfg.device)
+    model = nn.parallel.DistributedDataParallel(model,
+                                                device_ids=[cfg.local_rank, ],
+                                                output_device=cfg.local_rank)
+  else:
+    # todo don't use this, or wrapped it with utils.losses.Loss() !
+    model = nn.DataParallel(model).to(cfg.device)
+  #model = model.to(cfg.device)
   optimizer = torch.optim.Adam(model.parameters(), cfg.lr)
   lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, cfg.lr_step, gamma=0.1)
 
@@ -201,8 +222,8 @@ def main():
     with torch.no_grad():
       #TODO LOAD batch['image'] from PIL image
       for batch_idx, batch_val in enumerate(val_loader):
-        for h in batch_val:
-          print(h)
+        #for h in batch_val:
+         # print(h)
         if 'bar' in cfg.arch:
           batch_val['image'] = batch_val['image'].to(device=cfg.device, non_blocking=True)
           batch_val['hmap_tl'] = batch_val['hmap_tl'].to(device=cfg.device, non_blocking=True)
@@ -225,7 +246,7 @@ def main():
         #batch_val['tag_masks_grouped'] = batch_val['tag_masks_grouped'].to(device=cfg.device, non_blocking=True)
         # for k in batch_val.keys():
           
-
+       # model.to('cuda')
         outputs = model(batch_val)
         if 'bar' in cfg.arch:
           loss = bar_chart_loss(outputs,batch_val)
@@ -248,8 +269,8 @@ def main():
     ################## commented for now, output will be generated later in test model script
     if cfg.val_interval > 0 and epoch % cfg.val_interval == 0:
       val_map(epoch)
-    #TODO Model Checkpointing is remaining required for test script
-    #print(saver.save(model.module.state_dict(), 'checkpoint'))
+    #TODO Model Checkpointing is remaining, required for test script
+    print(saver.save(model.module.state_dict(), f'checkpoint_{cfg.arch}'))
     lr_scheduler.step(epoch)  # move to here after pytorch1.1.0
 
   summary_writer.close()
