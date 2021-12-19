@@ -42,6 +42,7 @@ class UBPMCDataset_Bar(Dataset):
         self.num_classes = 1
 
         self.is_training = is_Training
+        self.is_inference = is_inference
         self.gaussian = gaussian
         self.down_ratio = 4
         self.image_size = {'h':img_size,'w':img_size}
@@ -59,7 +60,7 @@ class UBPMCDataset_Bar(Dataset):
             else:
                 dataset_split = dataset['ubpmc_train_setup_bar']['train_val']
             if is_inference:
-                if ubpmc in testdb:
+                if 'ubpmc' in testdb:
                     dataset_split = dataset['ubpmc_train_setup_bar']['test_pmc']
                 else:
                     dataset_split = dataset['ubpmc_train_setup_bar']['train_synth']
@@ -90,7 +91,7 @@ class UBPMCDataset_Bar(Dataset):
                         x1 = x0 + bbox['width']
                         y1 = y0 + bbox['height']
                         bboxes.append([x0,y0,x1,y1])
-                    self.all_annotations[filename] =  np.asfarray(bboxes)
+                    self.all_annotations[filename] =  [np.asfarray(bboxes),file[0]]
                 elif 'task6' in data and data['task6'] is not None:
                     bboxes = []
                     for bbox in data['task6']['output']['visual elements']['bars']:
@@ -99,7 +100,7 @@ class UBPMCDataset_Bar(Dataset):
                         x1 = x0 + bbox['width']
                         y1 = y0 + bbox['height']
                         bboxes.append([x0,y0,x1,y1])
-                    self.all_annotations[filename] = np.asfarray(bboxes)
+                    self.all_annotations[filename] = [np.asfarray(bboxes),file[0]]
                
                 f.close()
         split = int(len(self.all_annotations.keys())*split_ratio)
@@ -120,11 +121,14 @@ class UBPMCDataset_Bar(Dataset):
     def __getitem__(self, index: int):
         dsf = 9
 
-        image_id = self.images[index]
+        image_id = self.images[index]   
         image = np.asfarray(cv2.imread(image_id))
-
-        bboxes = self.all_annotations[image_id]
         
+        bboxes = self.all_annotations[image_id][0]
+        json_gt = self.all_annotations[image_id][1]
+        if self.is_inference:
+            return {'image': image, 'image_id':image_id, 'anno':bboxes, 'anno_file':json_gt}
+
         if(self.is_training):
 
             image, bboxes = random_crop(image,
@@ -226,7 +230,7 @@ class UBPMCDataset_Line(Dataset):
     dataset=None, arch=None, is_inference=False,testdb='ubpmc'):
         
         self.num_classes = 1
-
+        self.is_inference = is_inference
         self.is_training = is_Training
         self.gaussian = gaussian
         self.down_ratio = 4
@@ -245,7 +249,7 @@ class UBPMCDataset_Line(Dataset):
             else:
                 dataset_split = dataset['ubpmc_train_setup_line']['train_val']
             if is_inference:
-                if ubpmc in testdb:
+                if 'ubpmc' in testdb:
                     dataset_split = dataset['ubpmc_train_setup_line']['test_pmc']
                 else:
                     dataset_split = dataset['ubpmc_train_setup_line']['train_synth']
@@ -284,10 +288,10 @@ class UBPMCDataset_Line(Dataset):
                             line.append(linept['x'])        
                             line.append(linept['y'])        
                         bboxes.append(line)
-                    self.all_annotations[filename] = np.asfarray(self.pad_to_dense(bboxes))
+                    self.all_annotations[filename] = [np.asfarray(self.pad_to_dense(bboxes)),file[0]]
                
                 f.close()
-        self.images = list(self.all_annotations.keys())[:2]
+        self.images = list(self.all_annotations.keys())#[0:5]
 
 
 
@@ -315,7 +319,10 @@ class UBPMCDataset_Line(Dataset):
         image_id = self.images[index]
         image = np.asfarray(cv2.imread(image_id))
 
-        bboxes = self.all_annotations[image_id]
+        bboxes = self.all_annotations[image_id][0]
+        json_gt = self.all_annotations[image_id][1]
+        if self.is_inference:
+            return {'image': image, 'image_id':image_id, 'anno':bboxes, 'anno_file':json_gt}
 
         if self.is_training:
 

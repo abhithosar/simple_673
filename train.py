@@ -45,7 +45,7 @@ parser.add_argument('--log_name', type=str, default='test')
 
 #parser.add_argument('--dataset', type=str, default='ubpmc', choices=['coco', 'pascal'])
 #parser.add_argument('--arch', type=str, default='ubpmc_bar')
-parser.add_argument('--arch', type=str, default='ubpmc_bar')
+parser.add_argument('--arch', type=str, default='ubpmc_line')
 
 parser.add_argument('--img_size', type=int, default=511)
 parser.add_argument('--split_ratio', type=float, default=1.0)
@@ -251,6 +251,8 @@ def main():
         if 'bar' in cfg.arch:
           loss = bar_chart_loss(outputs,batch_val)
         if 'line' in cfg.arch:
+          if batch_val['tag_masks_grouped'].shape[0] == 1:
+            continue
           loss = line_chart_loss(outputs,batch_val)
           
           print(f"validatation loss :: {loss}")

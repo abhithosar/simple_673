@@ -309,7 +309,7 @@ class exkp(nn.Module):
       
       if self.chart_type == 'line':
         if self.for_inference:
-          return self.bar_chart_val(inputs)
+          return self.line_chart_eval(inputs)
         else:
           return self.train_loop(inputs)
       return self.test_looop()
@@ -340,7 +340,7 @@ class exkp(nn.Module):
 
           # regs_tl = [_tranpose_and_gather_feature(r, inputs['inds_tl']) for r in regs_tl]
           # regs_br = [_tranpose_and_gather_feature(r, inputs['inds_br']) for r in regs_br]
-          if not for_val:
+          if not self.for_inference:
             regs_tl = _tranpose_and_gather_feature(regs_tl,inputs['inds_tl'])
             regs_br = _tranpose_and_gather_feature(regs_br,inputs['inds_br'])
           #outs.append([hmap_tl, hmap_br, embd_tl, embd_br, regs_tl, regs_br])
@@ -368,16 +368,18 @@ class exkp(nn.Module):
 
           # key_tag  = [_tranpose_and_gather_feature(e, inputs['key_tags']) for e in key_tag_ori]
           # key_regr = [_tranpose_and_gather_feature(e, inputs['key_tags']) for e in key_regrs_ori]
+          if not self.for_inference:
+            key_tag  = _tranpose_and_gather_feature(key_tag_ori, inputs['key_tags'])
+            key_regr = _tranpose_and_gather_feature(key_regrs_ori, inputs['key_tags']) 
 
-          key_tag  = _tranpose_and_gather_feature(key_tag_ori, inputs['key_tags'])
-          key_regr = _tranpose_and_gather_feature(key_regrs_ori, inputs['key_tags']) 
+            key_tag_grouped = []
+            for g_id in range(16):
+              key_tag_grouped.append(torch.unsqueeze(_tranpose_and_gather_feature(key_tag_ori, inputs['key_tags_grouped'][:,g_id,:]), 1))
+            key_tag_grouped = torch.cat(key_tag_grouped, 1)
 
-          key_tag_grouped = []
-          for g_id in range(16):
-            key_tag_grouped.append(torch.unsqueeze(_tranpose_and_gather_feature(key_tag_ori, inputs['key_tags_grouped'][:,g_id,:]), 1))
-          key_tag_grouped = torch.cat(key_tag_grouped, 1)
-
-          outs.append([key_heat, hybrid_heat, key_tag, key_tag_grouped, key_regr])
+            outs.append([key_heat, hybrid_heat, key_tag, key_tag_grouped, key_regr])
+          else:
+            outs.append([key_heat,hybrid_heat,key_tag_ori,key_regrs_ori])
 
         if self.chart_type == 'line_query':
           ps_features = _tranpose_and_gather_feature(cnv, inputs["ps_inds"])
@@ -459,7 +461,55 @@ class exkp(nn.Module):
 
     return detections_tl, detections_br
 
+  def line_chart_eval(self,inputs):
+    output = self.train_loop(inputs,for_val=False
+    )
+    K = 100
+    kernel = 1
+    ae_threshold = 1
+    nums_dets = 1000
+    key_heat, hybrid_heat, key_tag, key_regr = output[0][0],output[0][1],output[0][2],output[0][3]
 
+    batch, cat, height, width = key_heat.size()
+
+    key_heat = torch.sigmoid(key_heat)
+    hybrid_heat = torch.sigmoid(hybrid_heat)
+
+    # perform nms on heatmaps
+    key_heat = _nms(key_heat, kernel=kernel)
+    hybrid_heat = _nms(hybrid_heat, kernel=kernel)
+
+    key_scores, key_inds, key_clses, key_ys, key_xs = _topk(key_heat, K=K)
+    hybrid_scores, hybrid_inds, hybrid_clses, hybrid_ys, hybrid_xs = _topk(hybrid_heat, K=K)
+    # print(key_scores)
+    key_regr_ = _tranpose_and_gather_feature(key_regr, key_inds)
+    hybrid_regr_ = _tranpose_and_gather_feature(key_regr, hybrid_inds)
+    key_tag_ = _tranpose_and_gather_feature(key_tag, key_inds)
+    hybrid_tag_ = _tranpose_and_gather_feature(key_tag, hybrid_inds)
+
+    key_tag_ = key_tag_.view(1, batch, K)
+    hybrid_tag_ = hybrid_tag_.view(1, batch, K)
+    key_scores_ = key_scores.view(1, batch, K)
+    key_clses_ = key_clses.view(1, batch, K)
+    key_xs_ = key_xs.view(1, batch, K)
+    # print('_________________')
+    # print(key_xs_[0, 0])
+    key_ys_ = key_ys.view(1, batch, K)
+    key_regr_ = key_regr_.view(1, batch, K, 2)
+    key_xs_ += key_regr_[:, :, :, 0]
+    # print(key_xs_[0, 0])
+    key_ys_ += key_regr_[:, :, :, 1]
+    hybrid_scores_ = hybrid_scores.view(1, batch, K)
+    hybrid_clses_ = hybrid_clses.view(1, batch, K)
+    hybrid_xs_ = hybrid_xs.view(1, batch, K)
+    hybrid_ys_ = hybrid_ys.view(1, batch, K)
+    hybrid_regr_ = hybrid_regr_.view(1, batch, K, 2)
+    hybrid_xs_ += hybrid_regr_[:, :, :, 0]
+    hybrid_ys_ += hybrid_regr_[:, :, :, 1]
+    detections_key = torch.cat([key_scores_, key_tag_, key_clses_.float(), key_xs_, key_ys_], dim=0)
+    detections_hybrid = torch.cat([hybrid_scores_, hybrid_tag_, hybrid_clses_.float(), hybrid_xs_, hybrid_ys_], dim=0)
+
+    return detections_key, detections_hybrid
 
 # tiny hourglass is for f**king debug
 def get_hourglass(hourglass_type,chart_type,for_inference):

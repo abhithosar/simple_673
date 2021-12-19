@@ -45,12 +45,17 @@ def get_inference_on_bar(nnet,image):
     nms_threshold = 0.5
     max_per_image = 100
 
-    height,width = image.shape[0:2]
+    height,width = image.shape[0],image.shape[1]
 
     detections_point_tl = []
     detections_point_br  =[]
-
-    scale = 1.0
+    
+    if height > 1500 or width > 1500:
+        scale = 0.3
+    elif (height > 1000 and height < 1500) or (width > 1000 and width<1500):
+        scale = 0.47
+    else:
+        scale = 1.0
 
     new_height = int(height*scale)
     new_width = int(width*scale)
@@ -86,7 +91,7 @@ def get_inference_on_bar(nnet,image):
     dets_tl = None
     dets_br = None
     with torch.no_grad():
-            inputs = {'image' : images[0]}
+            inputs = {'image' : images}
             detections_tl, detections_br = nnet(inputs)
             #detections_tl = detections_tl_detections_br[0]
             #detections_br = detections_tl_detections_br[1]
@@ -146,7 +151,7 @@ def get_inference_on_bar(nnet,image):
             keep_inds = (top_points_br[j][:, 0] >= thresh)
             top_points_br[j] = top_points_br[j][keep_inds]
 
-    return top_points_tl, top_points_br
+    return GroupBarRaw(top_points_tl, top_points_br)
 
 
 def _rescale_points(dets, ratios, borders, sizes):
@@ -189,3 +194,76 @@ def crop_image(image, center, size):
     ])
 
     return cropped_image, border, offset
+
+def GroupBarRaw(tls_raw, brs_raw):
+    
+    tls = []
+    for temp in tls_raw.values():
+        for point in temp:
+            bbox = [point[2], point[3], 6, 6]
+            bbox = [float(e) for e in bbox]
+            category_id = int(point[1])
+            score = float(point[0])
+            tls.append({'bbox':bbox, 'category_id': category_id, 'score': score})
+    brs = []
+    for temp in brs_raw.values():
+        for point in temp:
+            bbox = [point[2], point[3], 6, 6]
+            bbox = [float(e) for e in bbox]
+            category_id = int(point[1])
+            score = float(point[0])
+            brs.append({'bbox': bbox, 'category_id': category_id, 'score': score})
+    tls = get_point(tls, 0.4)
+    brs = get_point(brs, 0.4)
+    # for key in tls:
+    #     drawLine(image, key['bbox'][0], key['bbox'][1], 3, 3, (int(255 * key['score']), 0, 0))
+    # for key in brs:
+    #     drawLine(image, key['bbox'][0], key['bbox'][1], 3, 3, (0, int(255 * key['score']), 0))
+    #image.save(tar_dir + id2name[id])
+    info = {}
+    groups=[]
+    if len(tls) > 0:
+        for tar_id in range(1):
+            tl_same = []
+            br_same = []
+            for tl in tls:
+                if tl['category_id'] == tar_id:
+                    tl_same.append(tl)
+            for br in brs:
+                if br['category_id'] == tar_id:
+                    br_same.append(br)
+            #zero_y = estimate_zero_line(brs)
+            groups = group_point(tl_same, br_same)
+            #draw_group(groups, image)
+    return groups
+
+def get_point(points, threshold):
+    count = 0
+    points_clean = []
+    for point in points:
+        if point['score'] > threshold:
+            count += 1
+            points_clean.append(point)
+    return points_clean
+
+def group_point(tl_keys, br_keys):
+    pairs = []
+    for tl_key in tl_keys:
+        min_dis_score = 9999999999
+        target_br = None
+        for br_key in br_keys:
+            if br_key['bbox'][0] > tl_key['bbox'][0] + 4 and br_key['bbox'][1] > tl_key['bbox'][1] + 4:
+                dis = cal_dis(tl_key, br_key)
+                score = br_key['score']
+                #dis_score = dis * math.pow(1 - score, 1/16)
+                dis_score = dis
+                if dis_score < min_dis_score:
+                    min_dis_score = dis_score
+                    target_br = br_key
+        if target_br != None:
+            pairs.append([tl_key['bbox'][0], tl_key['bbox'][1], target_br['bbox'][0], target_br['bbox'][1]])
+    return pairs
+
+
+def cal_dis(a, b):
+    return -(a['bbox'][0]-b['bbox'][0]+0.1*(a['bbox'][1]-b['bbox'][1]))

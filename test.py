@@ -24,7 +24,7 @@ from utils.summary import create_logger
 from lib.nms.nms import soft_nms, soft_nms_merge
 
 from chart_models.bar.bar_chart_kp_detection import get_bar_chart_model,bar_chart_loss,get_inference_on_bar
-from chart_models.line.line_chart_kp_detection import get_line_chart_model, line_chart_loss
+from chart_models.line.line_chart_kp_detection import get_inference_on_line, get_line_chart_model, line_chart_loss
 # Training settings
 parser = argparse.ArgumentParser(description='cornernet')
 
@@ -33,7 +33,8 @@ parser.add_argument('--data_dir', type=str, default='./data')
 parser.add_argument('--log_name', type=str, default='test')
 
 parser.add_argument('--dataset', type=str, default='coco', choices=['coco', 'pascal'])
-parser.add_argument('--arch', type=str, default='ubpmc_bar')
+# parser.add_argument('--arch', type=str, default='ubpmc_bar')
+parser.add_argument('--arch', type=str, default='ubpmc_line')
 
 parser.add_argument('--test_flip', action='store_true')
 parser.add_argument('--test_scales', type=str, default='1')
@@ -96,15 +97,15 @@ def main():
                           arch=cfg.arch,
                           is_inference=True,
                           testdb='ubpmc')
-  val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=2,
+  val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1,
                                            shuffle=False, num_workers=1, pin_memory=True,
                                            )#collate_fn=val_dataset.collate_fn
 
   print('Creating model...')
   if 'bar' in cfg.arch:
-    model = get_bar_chart_model('tiny_hourglass',False)
+    model = get_bar_chart_model('tiny_hourglass',True)
   if 'line' in cfg.arch:
-    model = get_line_chart_model('tiny_hourglass',False)
+    model = get_line_chart_model('tiny_hourglass',True)
 
 
 
@@ -116,19 +117,31 @@ def main():
   model.eval()
   results = {}
   with torch.no_grad():
-    for batch_idx, batch_val in enumerate(val_loader):
-      # if 'bar' in cfg.arch:
-      #     batch_val['image'] = batch_val['image'].to(device=cfg.device, non_blocking=True)
-      #     batch_val['hmap_tl'] = batch_val['hmap_tl'].to(device=cfg.device, non_blocking=True)
-      #     batch_val['hmap_br'] = batch_val['hmap_br'].to(device=cfg.device, non_blocking=True)
-      #     batch_val['regs_tl'] = batch_val['regs_tl'].to(device=cfg.device, non_blocking=True)
-      #     batch_val['regs_br'] = batch_val['regs_br'].to(device=cfg.device, non_blocking=True)
-      #     batch_val['inds_tl'] = batch_val['inds_tl'].to(device=cfg.device, non_blocking=True)
-      #     batch_val['inds_br'] = batch_val['inds_br'].to(device=cfg.device, non_blocking=True)
-      #     batch_val['ind_masks'] = batch_val['ind_masks'].to(device=cfg.device, non_blocking=True)
+    index = 0 
+    length = val_dataset.num_samples
+    while index < length:
+      btch = val_dataset.__getitem__(index)
+      index+=1
+      if 'line' in cfg.arch:
+        outs = get_inference_on_line(model,btch['image'])
+      elif 'bar' in cfg.arch:
+        outs = get_inference_on_bar(model,btch['image'])
+
+      iss = 0
+
+    # for batch_idx, batch_val in enumerate(val_loader):
+    #   # if 'bar' in cfg.arch:
+    #   #     batch_val['image'] = batch_val['image'].to(device=cfg.device, non_blocking=True)
+    #   #     batch_val['hmap_tl'] = batch_val['hmap_tl'].to(device=cfg.device, non_blocking=True)
+    #   #     batch_val['hmap_br'] = batch_val['hmap_br'].to(device=cfg.device, non_blocking=True)
+    #   #     batch_val['regs_tl'] = batch_val['regs_tl'].to(device=cfg.device, non_blocking=True)
+    #   #     batch_val['regs_br'] = batch_val['regs_br'].to(device=cfg.device, non_blocking=True)
+    #   #     batch_val['inds_tl'] = batch_val['inds_tl'].to(device=cfg.device, non_blocking=True)
+    #   #     batch_val['inds_br'] = batch_val['inds_br'].to(device=cfg.device, non_blocking=True)
+    #   #     batch_val['ind_masks'] = batch_val['ind_masks'].to(device=cfg.device, non_blocking=True)
       
-      out1,out2 = get_inference_on_bar(model,batch_val['image'])
-      ing = 0
+    #   out1,out2 = get_inference_on_bar(model,batch_val['image'])
+    #   ing = 0
  # eval_results = dataset.run_eval(results, save_dir=cfg.ckpt_dir)
  # print(eval_results)
   #print('validation ends at %s' % datetime.now())
