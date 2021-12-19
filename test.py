@@ -153,6 +153,7 @@ def main():
                     if 'line' in cfg.arch:
                         main_list.append(list_vals)
             
+            
                 out_dict["task6"] = {"output": {"visual elements": {"lines": main_list}}}
                 target_path = os.path.join("annotation_convert", cfg.arch)
                 if not os.path.exists(target_path):
