@@ -45,7 +45,7 @@ parser.add_argument('--log_name', type=str, default='test')
 
 #parser.add_argument('--dataset', type=str, default='ubpmc', choices=['coco', 'pascal'])
 #parser.add_argument('--arch', type=str, default='ubpmc_bar')
-parser.add_argument('--arch', type=str, default='synth_scatter',
+parser.add_argument('--arch', type=str, default='synth_bar',
 choices=['ubpmc_line', 'ubpmc_bar','ubpmc_box','ubpmc_scatter',
          'synth_line','synth_bar','synth_box','synth_scatter'
 ])
@@ -109,7 +109,7 @@ def main():
     dataset_splits = pickle.load(handle)
   
 
-  
+  print(cfg)
 
   print('Setting up data...')
   Dataset_Dict = {

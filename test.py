@@ -49,8 +49,6 @@ parser.add_argument('--num_workers', type=int, default=1)
 
 parser.add_argument('--chart_type', type=str, default='line')
 
-parser.add_argument('--train_db', type=str, default='ubpmc',
-                    choices=['synth', 'ubpmc'])
 parser.add_argument('--test_db', type=str, default='ubpmc',
                     choices=['synth', 'ubpmc'])
 
