@@ -516,7 +516,7 @@ def get_hourglass(hourglass_type,chart_type,for_inference):
   get_hourglass_dict = \
     {
     #'large_hourglass' : exkp(n=5, nstack=2, dims=[256, 256, 384, 384, 384, 512], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type,for_inference=for_inference),
-    'large_hourglass' : exkp(n=5, nstack=1, dims=[256, 256, 384, 384, 384, 512], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type,for_inference=for_inference),
+    'large_hourglass' : exkp(n=5, nstack=2, dims=[256, 256, 384, 384, 384, 512], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type,for_inference=for_inference),
     'small_hourglass' : exkp(n=5, nstack=1, dims=[256, 256, 384, 384, 384, 512], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type,for_inference=for_inference),
     'tiny_hourglass'  : exkp(n=5, nstack=1, dims=[256, 128, 256, 256, 256, 384], modules=[2, 2, 2, 2, 2, 4],c_type=chart_type,for_inference=for_inference)
     }
