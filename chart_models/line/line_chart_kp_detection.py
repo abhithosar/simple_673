@@ -288,8 +288,8 @@ def GroupQuiryRaw(keys_raw, hybrids_raw):
             tag = float(point[1])
             score = float(point[0])
             hybrids.append({'bbox': bbox, 'category_id': category_id, 'score': score, 'tag': tag})
-    keys = get_point(keys, 0.4)
-    hybrids = get_point(hybrids, 0.4)
+    #keys = get_point(keys, 0.4)
+    #hybrids = get_point(hybrids, 0.4)
     keys = check_cross(keys, hybrids)
     quiries = quiry_for_hybrid(keys)
     return quiries, keys, hybrids
