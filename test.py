@@ -35,7 +35,7 @@ parser.add_argument('--log_name', type=str, default='test')
 parser.add_argument('--dataset', type=str, default='coco',
                     choices=['coco', 'pascal'])
 # parser.add_argument('--arch', type=str, default='ubpmc_bar')
-parser.add_argument('--arch', type=str, default='ubpmc_line')
+parser.add_argument('--arch', type=str, default='synth_scatter')
 
 parser.add_argument('--test_flip', action='store_true')
 parser.add_argument('--test_scales', type=str, default='1')
@@ -49,6 +49,8 @@ parser.add_argument('--num_workers', type=int, default=1)
 
 parser.add_argument('--chart_type', type=str, default='line')
 
+# parser.add_argument('--train_db', type=str, default='ubpmc',
+#                     choices=['synth', 'ubpmc'])
 parser.add_argument('--test_db', type=str, default='ubpmc',
                     choices=['synth', 'ubpmc'])
 
@@ -58,7 +60,7 @@ os.chdir(cfg.root_dir)
 
 cfg.ckpt_dir = os.path.join(cfg.root_dir, 'ckpt', cfg.log_name)
 cfg.log_dir = os.path.join(cfg.root_dir, 'logs', cfg.log_name)
-cfg.pretrain_dir = os.path.join(cfg.ckpt_dir, f'checkpoint_{cfg.arch}.pt')
+cfg.pretrain_dir = os.path.join(cfg.ckpt_dir, f'checkpoint_{cfg.arch}.t7')
 
 os.makedirs(cfg.log_dir, exist_ok=True)
 os.makedirs(cfg.ckpt_dir, exist_ok=True)
@@ -110,7 +112,7 @@ def main():
     print('Creating model...')
     if 'bar' in cfg.arch:
         model = get_bar_chart_model('tiny_hourglass', True)
-    if 'line' in cfg.arch:
+    if 'line' in cfg.arch or 'scatter' in cfg.arch:
         model = get_line_chart_model('tiny_hourglass', True)
 
     model = model.to(cfg.device)
@@ -132,20 +134,31 @@ def main():
             if 'line' in cfg.arch or 'scatter' in cfg.arch:
                 outs = get_inference_on_line(model, btch['image'])
                 out_dict['task1'] = {"output": {"chart_type": "line"}}
-                list_vals = []
+               
                 main_list = []
                 for val in outs:
+                    list_vals = []
                     # for inner_val in val:
                     if 'line' in cfg.arch:
+                        if len(val[0])>1:
+                            for inner_val in val:
+                                list_vals.append({"x": inner_val[0], "y":inner_val[1]})
+                        else:
+                            list_vals.append({"x": val[0], "y":val[1]})
                         list_vals.append({"x": val[0], "y":val[1]})
                     else:
-                        list_vals.append({"x": val[0], "y":inner_val[1]})
-
-                main_list.append(list_vals)
+                        for inner_val in val:
+                                main_list.append({"x": inner_val[0], "y":inner_val[1]})
+                        
+                    if 'line' in cfg.arch:
+                        main_list.append(list_vals)
             
-            
-                out_dict["task6"] = {"output": {"visual elements": {"lines": main_list}}}
+                if 'line' in cfg.arch:
+                    out_dict["task6"] = {"output": {"visual elements": {"lines": main_list}}}
+                else:
+                    out_dict["task6"] = {"output": {"visual elements": {"scatter points": main_list}}}
                 target_path = os.path.join("annotation_convert", cfg.arch)
+
                 if not os.path.exists(target_path):
                   os.makedirs(target_path)
                 target_path = os.path.join(target_path,file_name)
