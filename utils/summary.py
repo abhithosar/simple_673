@@ -82,7 +82,7 @@ class Saver:
 
   def save(self, obj, save_name):
     if self.distributed_rank == 0:
-      torch.save(obj, os.path.join(self.save_dir, save_name + '.t7'))
+      torch.save(obj, os.path.join('/content/gdrive/MyDrive/simple_673/ckpt/test', save_name + '.t7'))
       return 'checkpoint saved in %s !' % os.path.join(self.save_dir, save_name)
     else:
       return ''
