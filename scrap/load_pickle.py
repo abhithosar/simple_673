@@ -295,8 +295,8 @@ partioned_data = {'ubpmc_train_setup_line':ubpmc_train_setup_line,'synth_train_s
 
 
 # --------------------------------
-with open('scrap/db_split.pickle', 'wb') as handle:
-   pickle.dump(partioned_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+# with open('scrap/db_split.pickle', 'wb') as handle:
+#    pickle.dump(partioned_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 with open('scrap/db_split.pickle', 'rb') as handle:
     b = pickle.load(handle)
