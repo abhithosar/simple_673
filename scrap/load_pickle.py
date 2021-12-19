@@ -57,7 +57,7 @@ for val in adobe_synth:
         list_t=[0]*2
         
         list_t[0] = f"data/adobesynth/Task-level-JSONs/JSONs/{val}/{shuffled[gr]}"
-        list_t[1] = f"data/adobesynth/Chart-Images-and-Metadata/ICPR/Charts/{val}/{os.path.splitext(os.path.basename(shuffled[gr]))[0]}.jpg"
+        list_t[1] = f"data/adobesynth/Chart-Images-and-Metadata/ICPR/Charts/{val}/{os.path.splitext(os.path.basename(shuffled[gr]))[0]}.png"
         all_data.append(list_t)
     shuffled = all_data
     
@@ -295,8 +295,8 @@ partioned_data = {'ubpmc_train_setup_line':ubpmc_train_setup_line,'synth_train_s
 
 
 # --------------------------------
-#with open('scrap/db_split.pickle', 'wb') as handle:
- #   pickle.dump(partioned_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+with open('scrap/db_split.pickle', 'wb') as handle:
+   pickle.dump(partioned_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 with open('scrap/db_split.pickle', 'rb') as handle:
     b = pickle.load(handle)

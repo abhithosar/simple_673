@@ -37,7 +37,9 @@ COCO_EIGEN_VECTORS = [[-0.58752847, -0.69563484, 0.41340352],
 class UBPMCDataset_Bar(Dataset):
     def __init__(self, data_dir, is_Training =False, 
                        split_ratio=0.8, gaussian=True, 
-                       img_size=511, dataset=None, arch=None, is_inference=False,testdb='ubpmc'):
+                       img_size=511, dataset=None, arch=None, is_inference=False,
+                       traindb='synth',
+                       testdb='ubpmc'):
         #self.split = dataset_split
         self.num_classes = 1
 
@@ -56,14 +58,20 @@ class UBPMCDataset_Bar(Dataset):
         dataset_split = None
         if 'bar' in arch:
             if is_Training:
-                dataset_split = dataset['ubpmc_train_setup_bar']['train']
+                if traindb == 'ubpmc':
+                    dataset_split = dataset['ubpmc_train_setup_bar']['train']
+                else:
+                    dataset_split = dataset['synth_train_setup_bar']['train']
             else:
-                dataset_split = dataset['ubpmc_train_setup_bar']['train_val']
+                if traindb == 'ubpmc':
+                    dataset_split = dataset['ubpmc_train_setup_bar']['train_val']
+                else:
+                    dataset_split = dataset['synth_train_setup_bar']['train_val']
             if is_inference:
                 if 'ubpmc' in testdb:
                     dataset_split = dataset['ubpmc_train_setup_bar']['test_pmc']
                 else:
-                    dataset_split = dataset['ubpmc_train_setup_bar']['train_synth']
+                    dataset_split = dataset['ubpmc_train_setup_bar']['test_synth']
         
 
         self.data_dir = os.path.join(data_dir, 'ubpmc')
@@ -227,7 +235,11 @@ class UBPMCDataset_Bar(Dataset):
 
 class UBPMCDataset_Line(Dataset):
     def __init__(self,data_dir,is_Training =False, split_ratio=1.0, gaussian=True, img_size=511,
-    dataset=None, arch=None, is_inference=False,testdb='ubpmc'):
+    dataset=None, arch=None, 
+    is_inference=False,
+    traindb='synth',
+    testdb='ubpmc'
+    ):
         
         self.num_classes = 1
         self.is_inference = is_inference
@@ -245,18 +257,41 @@ class UBPMCDataset_Line(Dataset):
         dataset_split = None
         if 'line' in arch:
             if is_Training:
-                dataset_split = dataset['ubpmc_train_setup_line']['train']
+                if traindb == 'ubpmc':
+                    dataset_split = dataset['ubpmc_train_setup_line']['train']
+                else:
+                    dataset_split = dataset['synth_train_setup_line']['train']
             else:
-                dataset_split = dataset['ubpmc_train_setup_line']['train_val']
+                if traindb == 'ubpmc':
+                    dataset_split = dataset['ubpmc_train_setup_line']['train_val']
+                else:
+                    dataset_split = dataset['synth_train_setup_line']['train_val']
             if is_inference:
                 if 'ubpmc' in testdb:
                     dataset_split = dataset['ubpmc_train_setup_line']['test_pmc']
                 else:
-                    dataset_split = dataset['ubpmc_train_setup_line']['train_synth']
+                    dataset_split = dataset['ubpmc_train_setup_line']['test_synth']
+        
+        if 'scatter' in arch:
+            if is_Training:
+                if traindb == 'ubpmc':
+                    dataset_split = dataset['ubpmc_train_setup_scatter']['train']
+                else:
+                    dataset_split = dataset['synth_train_setup_scatter']['train']
+            else:
+                if traindb == 'ubpmc':
+                    dataset_split = dataset['ubpmc_train_setup_scatter']['train_val']
+                else:
+                    dataset_split = dataset['synth_train_setup_scatter']['train_val']
+            if is_inference:
+                if 'ubpmc' in testdb:
+                    dataset_split = dataset['ubpmc_train_setup_scatter']['test_pmc']
+                else:
+                    dataset_split = dataset['ubpmc_train_setup_scatter']['test_synth']
         
 
         self.data_dir = os.path.join(data_dir, 'ubpmc')
-        classname = 'line'
+        classname = 'lines' if 'line' in arch else 'scatter points'
         self.img_dir = os.path.join(self.data_dir, "images",classname)
         annotations_folder = os.path.join(self.data_dir, "annotations_JSON", classname, "*.json")
 
@@ -267,13 +302,13 @@ class UBPMCDataset_Line(Dataset):
         for file in dataset_split:
             data = dict()
             filename = file[1]#os.path.join(self.img_dir, os.path.splitext(os.path.basename(file))[0] + ".jpg")
-            
+            #str_type = 'lines' if 
             #with open(file) as f:
             with open(file[0]) as f:
                 data = json.load(f)
                 if 'task6_output' in data and data['task6_output'] is not None:
                     bboxes = []
-                    for bbox in data['task6_output']['output']['visual elements']['lines']:
+                    for bbox in data['task6_output']['output']['visual elements'][classname]:
                         line =[]
                         for linept in linepts:
                             line.append(linept['x'])        
@@ -282,11 +317,15 @@ class UBPMCDataset_Line(Dataset):
                     self.all_annotations[filename] =  np.asfarray(bboxes)
                 elif 'task6' in data and data['task6'] is not None:
                     bboxes = []
-                    for linepts in data['task6']['output']['visual elements']['lines']:
+                    for linepts in data['task6']['output']['visual elements'][classname]:
                         line =[]
-                        for linept in linepts:
-                            line.append(linept['x'])        
-                            line.append(linept['y'])        
+                        if arch == 'line':
+                            for linept in linepts:
+                                line.append(linept['x'])        
+                                line.append(linept['y'])        
+                        else:
+                            line.append(linepts['x'])
+                            line.append(linepts['y'])
                         bboxes.append(line)
                     self.all_annotations[filename] = [np.asfarray(self.pad_to_dense(bboxes)),file[0]]
                

@@ -45,7 +45,10 @@ parser.add_argument('--log_name', type=str, default='test')
 
 #parser.add_argument('--dataset', type=str, default='ubpmc', choices=['coco', 'pascal'])
 #parser.add_argument('--arch', type=str, default='ubpmc_bar')
-parser.add_argument('--arch', type=str, default='ubpmc_line')
+parser.add_argument('--arch', type=str, default='synth_scatter',
+choices=['ubpmc_line', 'ubpmc_bar','ubpmc_box','ubpmc_scatter',
+         'synth_line','synth_bar','synth_box','synth_scatter'
+])
 
 parser.add_argument('--img_size', type=int, default=511)
 parser.add_argument('--split_ratio', type=float, default=1.0)
@@ -64,7 +67,7 @@ parser.add_argument('--num_workers', type=int, default=2)
 #parser.add_argument('--chart_type', type=str, default='bar')
 parser.add_argument('--chart_type', type=str, default='line')
 
-parser.add_argument('--train_db',type=str,default='ubpmc',choices=['synth', 'ubpmc'])
+parser.add_argument('--train_db',type=str,default='synth',choices=['synth', 'ubpmc'])
 parser.add_argument('--test_db',type=str,default='ubpmc',choices=['synth', 'ubpmc'])
 
 
@@ -112,6 +115,12 @@ def main():
   Dataset_Dict = {
     'ubpmc_bar':UBPMCDataset_Bar,
     'ubpmc_line':UBPMCDataset_Line,
+    'ubpmc_box':UBPMCDataset_Bar,
+    'ubpmc_scatter':UBPMCDataset_Line,
+    'synth_line':UBPMCDataset_Line,
+    'synth_bar':UBPMCDataset_Bar,
+    'synth_box':UBPMCDataset_Bar,
+    'synth_scatter':UBPMCDataset_Line,
     'coco':COCO,
     'pascal':PascalVOC
   }
@@ -125,7 +134,8 @@ def main():
                           dataset=dataset_splits,
                           arch=cfg.arch,
                           is_inference=False,
-                          testdb='ubpmc')
+                          traindb=cfg.train_db,
+                          testdb=cfg.test_db)
 
   train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset,
                                                                   num_replicas=num_gpus,
@@ -139,8 +149,14 @@ def main():
                                              drop_last=True,
                                              sampler=train_sampler if cfg.dist else None)
   Dataset_Eval_Dict = {
-    'ubpmc_bar':UBPMCDataset_Bar,#UBPMCDataset_Bar_Eval,
-     'ubpmc_line':UBPMCDataset_Line,
+   'ubpmc_bar':UBPMCDataset_Bar,
+    'ubpmc_line':UBPMCDataset_Line,
+    'ubpmc_box':UBPMCDataset_Bar,
+    'ubpmc_scatter':UBPMCDataset_Line,
+    'synth_line':UBPMCDataset_Line,
+    'synth_bar':UBPMCDataset_Bar,
+    'synth_box':UBPMCDataset_Bar,
+    'synth_scatter':UBPMCDataset_Line,
     'coco':COCO_eval,
     'pascal':PascalVOC_eval
   }
@@ -152,16 +168,18 @@ def main():
   val_dataset = Dataset_eval(cfg.data_dir,is_Training=False,dataset=dataset_splits,
                           arch=cfg.arch,
                           is_inference=False,
-                          testdb='ubpmc')
+                          testdb=cfg.test_db)
   val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=2,
                                            shuffle=False, num_workers=1, pin_memory=True,
                                            )#collate_fn=val_dataset.collate_fn
 
   print('Creating model...')
   if 'bar' in cfg.arch:
-    model = get_bar_chart_model('tiny_hourglass',False)
-  if 'line' in cfg.arch:
-    model = get_line_chart_model('tiny_hourglass',False)
+    model = get_bar_chart_model('large_hourglass',False)
+  if 'line' in cfg.arch or 'scatter' in cfg.arch:
+    model = get_line_chart_model('large_hourglass',False)
+  if 'box' in cfg.arch:
+    model = get_bar_chart_model('large_hourglass',False)
 
 
   if cfg.dist:
@@ -188,7 +206,7 @@ def main():
       outputs = model(batch)#batch['image'])
       if 'bar' in cfg.arch:
         loss = bar_chart_loss(outputs,batch)
-      if 'line' in cfg.arch:
+      if 'line' in cfg.arch or 'scatter' in cfg.arch:
         loss = line_chart_loss(outputs,batch)
 
       optimizer.zero_grad()
