@@ -319,7 +319,7 @@ class UBPMCDataset_Line(Dataset):
                     bboxes = []
                     for linepts in data['task6']['output']['visual elements'][classname]:
                         line =[]
-                        if arch == 'line':
+                        if 'line' in arch:
                             for linept in linepts:
                                 line.append(linept['x'])        
                                 line.append(linept['y'])        

@@ -35,7 +35,7 @@ parser.add_argument('--log_name', type=str, default='test')
 parser.add_argument('--dataset', type=str, default='coco',
                     choices=['coco', 'pascal'])
 # parser.add_argument('--arch', type=str, default='ubpmc_bar')
-parser.add_argument('--arch', type=str, default='ubpmc_scatter')
+parser.add_argument('--arch', type=str, default='ubpmc_line')
 
 parser.add_argument('--test_flip', action='store_true')
 parser.add_argument('--test_scales', type=str, default='1')
@@ -49,8 +49,8 @@ parser.add_argument('--num_workers', type=int, default=1)
 
 parser.add_argument('--chart_type', type=str, default='line')
 
-parser.add_argument('--train_db', type=str, default='ubpmc',
-                    choices=['synth', 'ubpmc'])
+# parser.add_argument('--train_db', type=str, default='ubpmc',
+#                     choices=['synth', 'ubpmc'])
 parser.add_argument('--test_db', type=str, default='ubpmc',
                     choices=['synth', 'ubpmc'])
 
@@ -85,10 +85,16 @@ def main():
         dataset_splits = pickle.load(handle)
 
     Dataset_Eval_Dict = {
-        'ubpmc_bar': UBPMCDataset_Bar,  # UBPMCDataset_Bar_Eval,
-        'ubpmc_line': UBPMCDataset_Line,
-        'coco': COCO_eval,
-        'pascal': PascalVOC_eval
+        'ubpmc_bar':UBPMCDataset_Bar,
+    'ubpmc_line':UBPMCDataset_Line,
+    'ubpmc_box':UBPMCDataset_Bar,
+    'ubpmc_scatter':UBPMCDataset_Line,
+    'synth_line':UBPMCDataset_Line,
+    'synth_bar':UBPMCDataset_Bar,
+    'synth_box':UBPMCDataset_Bar,
+    'synth_scatter':UBPMCDataset_Line,
+    'coco':COCO_eval,
+    'pascal':PascalVOC_eval
     }
     if cfg.arch in Dataset_Eval_Dict:
         Dataset_eval = Dataset_Eval_Dict[cfg.arch]
@@ -125,20 +131,22 @@ def main():
             out_dict = {}
             file_name = os.path.splitext(
                 os.path.basename(btch['anno_file']))[0]+'.json'
-            if 'line' in cfg.arch:
+            if 'line' in cfg.arch or 'scatter' in cfg.arch:
                 outs = get_inference_on_line(model, btch['image'])
                 out_dict['task1'] = {"output": {"chart_type": "line"}}
                 list_vals = []
                 main_list = []
                 for val in outs:
-                  if len(val[0])>1:
-                    for inner_val in val:
-                      list_vals.append({"x": inner_val[0], "y":inner_val[1]})
+                    # for inner_val in val:
+                    if 'line' in cfg.arch:
+                        list_vals.append({"x": val[0], "y":val[1]})
                     else:
-                      list_vals.append({"x": val[0], "y":val[1]})
+                        list_vals.append({"x": val[0], "y":inner_val[1]})
+
                 main_list.append(list_vals)
+            
                 out_dict["task6"] = {"output": {"visual elements": {"lines": main_list}}}
-                target_path = os.path.join("annotation_convert", 'line')
+                target_path = os.path.join("annotation_convert", cfg.arch)
                 if not os.path.exists(target_path):
                   os.makedirs(target_path)
                 target_path = os.path.join(target_path,file_name)
