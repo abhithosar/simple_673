@@ -268,7 +268,7 @@ def main():
         outputs = model(batch_val)
         if 'bar' in cfg.arch:
           loss = bar_chart_loss(outputs,batch_val)
-        if 'line' in cfg.arch:
+        if 'line' in cfg.arch or 'scatter' in cfg.arch:
           if batch_val['tag_masks_grouped'].shape[0] == 1:
             continue
           loss = line_chart_loss(outputs,batch_val)
