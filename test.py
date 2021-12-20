@@ -35,8 +35,10 @@ parser.add_argument('--log_name', type=str, default='test')
 parser.add_argument('--dataset', type=str, default='coco',
                     choices=['coco', 'pascal'])
 # parser.add_argument('--arch', type=str, default='ubpmc_bar')
-parser.add_argument('--arch', type=str, default='synth_scatter')
-
+parser.add_argument('--arch', type=str, default='synth_bar',
+choices=['ubpmc_line', 'ubpmc_bar','ubpmc_box','ubpmc_scatter',
+         'synth_line','synth_bar','synth_box','synth_scatter'
+])
 parser.add_argument('--test_flip', action='store_true')
 parser.add_argument('--test_scales', type=str, default='1')
 
